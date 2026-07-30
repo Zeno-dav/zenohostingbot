@@ -91,7 +91,7 @@ ADMIN_ID  = 8271186073
 YOUR_USERNAME = '@Zeno098'
 UPDATE_CHANNEL = '@zenoexploit1'
 FORCE_JOIN_CHANNEL = '@zenoexploit1'   
-APPROVAL_CHANNEL = '@zenoexploit1' 
+APPROVAL_CHANNEL = '@zenohostingfile' 
 BOT_NAME = f"{make_bold_unicode('ZENO HOSTING')} 💗"
 CREDIT = "𐌆ᴇɴᴏ"
 
