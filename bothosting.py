@@ -37,7 +37,7 @@ def make_bold_unicode(text):
         new_word = []
         for i, char in enumerate(word):
             codepoint = ord(char)
-            # First character of each word -> Bold Unicode
+            # First character -> Bold Unicode
             if i == 0:
                 if 65 <= codepoint <= 90:  # A-Z
                     new_word.append(chr(codepoint - 65 + 0x1D400))
@@ -60,14 +60,14 @@ def make_bold_unicode(text):
     return " ".join(stylized_words)
 
 class StyledKeyboardButton(types.KeyboardButton):
-    def __init__(self, text, *args, **kwargs):
-        kwargs.pop('style', None) 
+    def __init__(self, text, style=None, *args, **kwargs):
         super().__init__(text=text, *args, **kwargs)
+        self.style = style
 
 class StyledInlineKeyboardButton(types.InlineKeyboardButton):
-    def __init__(self, text, *args, **kwargs):
-        kwargs.pop('style', None)
+    def __init__(self, text, style=None, *args, **kwargs):
         super().__init__(text=text, *args, **kwargs)
+        self.style = style
 
 # --- Flask Keep Alive ---
 from flask import Flask
@@ -121,8 +121,13 @@ SPAM_WINDOW_SECONDS = 20
 MAX_HEAVY_ACTIONS = 10      
 BAN_DURATION_MINUTES = 5    
 
+admin_ids = {ADMIN_ID, OWNER_ID}
+
+def is_admin(user_id):
+    return user_id == OWNER_ID or user_id in admin_ids
+
 def is_user_banned(user_id):
-    if user_id in admin_ids:
+    if is_admin(user_id):
         return False, None
     
     now = datetime.now()
@@ -138,7 +143,7 @@ def is_user_banned(user_id):
     return False, None
 
 def track_heavy_action(user_id):
-    if user_id in admin_ids:
+    if is_admin(user_id):
         return False, None
 
     now = datetime.now()
@@ -164,7 +169,6 @@ bot_scripts = {}
 user_subscriptions = {}
 user_files = {}
 active_users = set()
-admin_ids = {ADMIN_ID, OWNER_ID}
 bot_locked = False
 
 fake_users_count = 0
@@ -231,6 +235,8 @@ def load_data():
         active_users.update(uid for (uid,) in c.fetchall())
         c.execute('SELECT user_id FROM admins')
         admin_ids.update(uid for (uid,) in c.fetchall())
+        admin_ids.add(OWNER_ID)
+        admin_ids.add(ADMIN_ID)
         
         c.execute('SELECT channel_type, channel_val FROM channels')
         for ctype, cval in c.fetchall():
@@ -376,130 +382,130 @@ def remove_admin_db(admin_id):
         finally: conn.close()
         return removed
 
-# ==================== KEYBOARDS WITH PREMIUM UNICODE FONT ====================
+# ==================== KEYBOARDS ====================
 def create_reply_keyboard(user_id):
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    keyboard.row(StyledKeyboardButton(text=f"📤 {make_bold_unicode('Upload File')}"))
+    keyboard.row(StyledKeyboardButton(text=f"📤 {make_bold_unicode('Upload File')}", style="primary"))
     keyboard.row(
-        StyledKeyboardButton(text=f"📂 {make_bold_unicode('My Files')}", style="primary")),
-        StyledKeyboardButton(text=f"⚡ {make_bold_unicode('Speed Test')}")
+        StyledKeyboardButton(text=f"📂 {make_bold_unicode('My Files')}", style="primary"),
+        StyledKeyboardButton(text=f"⚡ {make_bold_unicode('Speed Test')}", style="primary")
     )
     keyboard.row(
-        StyledKeyboardButton(text=f"📊 {make_bold_unicode('Statistics')}"),
-        StyledKeyboardButton(text=f"🎁 {make_bold_unicode('Refer & Earn')}")
+        StyledKeyboardButton(text=f"📊 {make_bold_unicode('Statistics')}", style="primary"),
+        StyledKeyboardButton(text=f"🎁 {make_bold_unicode('Refer & Earn')}", style="primary")
     )
     keyboard.row(
-        StyledKeyboardButton(text=f"📖 {make_bold_unicode('How To Use')}"),
-        StyledKeyboardButton(text=f"📦 {make_bold_unicode('Manual Install')}")
+        StyledKeyboardButton(text=f"📖 {make_bold_unicode('How To Use')}", style="primary"),
+        StyledKeyboardButton(text=f"📦 {make_bold_unicode('Manual Install')}", style="primary")
     )
-    if user_id in admin_ids:
+    if is_admin(user_id):
         keyboard.row(
-            StyledKeyboardButton(text=f"📤 {make_bold_unicode('Send Command')}"),
-            StyledKeyboardButton(text=f"👑 {make_bold_unicode('Admin Panel')}")
+            StyledKeyboardButton(text=f"📤 {make_bold_unicode('Send Command')}", style="primary"),
+            StyledKeyboardButton(text=f"👑 {make_bold_unicode('Admin Panel')}", style="danger")
         )
-    keyboard.row(StyledKeyboardButton(text=f"📞 {make_bold_unicode('Contact Admin (WhatsApp)')}"))
+    keyboard.row(StyledKeyboardButton(text=f"📞 {make_bold_unicode('Contact Admin (WhatsApp)')}", style="primary"))
     return keyboard
 
 def create_admin_panel():
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     keyboard.row(
-        StyledInlineKeyboardButton(text=f"💳 {make_bold_unicode('Subscriptions')}", callback_data='subscription'),
-        StyledInlineKeyboardButton(text=f"📢 {make_bold_unicode('Broadcast')}", callback_data='broadcast')
+        StyledInlineKeyboardButton(text=f"💳 {make_bold_unicode('Subscriptions')}", callback_data='subscription', style="primary"),
+        StyledInlineKeyboardButton(text=f"📢 {make_bold_unicode('Broadcast')}", callback_data='broadcast', style="primary")
     )
     keyboard.row(
-        StyledInlineKeyboardButton(text=f"👥 {make_bold_unicode('Users List')}", callback_data='admin_users_list'),
-        StyledInlineKeyboardButton(text=f"🔍 {make_bold_unicode('User Details')}", callback_data='admin_user_details')
+        StyledInlineKeyboardButton(text=f"👥 {make_bold_unicode('Users List')}", callback_data='admin_users_list', style="primary"),
+        StyledInlineKeyboardButton(text=f"🔍 {make_bold_unicode('User Details')}", callback_data='admin_user_details', style="primary")
     )
     keyboard.row(
-        StyledInlineKeyboardButton(text=f"💬 {make_bold_unicode('Direct Chat')}", callback_data='admin_direct_chat_init'),
-        StyledInlineKeyboardButton(text=f"📢 {make_bold_unicode('Channels Settings')}", callback_data='admin_channel_settings')
+        StyledInlineKeyboardButton(text=f"💬 {make_bold_unicode('Direct Chat')}", callback_data='admin_direct_chat_init', style="primary"),
+        StyledInlineKeyboardButton(text=f"📢 {make_bold_unicode('Channels Settings')}", callback_data='admin_channel_settings', style="primary")
     )
     keyboard.row(
-        StyledInlineKeyboardButton(text=f"📈 {make_bold_unicode('Fake Stats Settings')}", callback_data='admin_fake_stats_settings'),
-        StyledInlineKeyboardButton(text=f"⚙️ {make_bold_unicode('File Limits')}", callback_data='admin_limits_settings')
+        StyledInlineKeyboardButton(text=f"📈 {make_bold_unicode('Fake Stats Settings')}", callback_data='admin_fake_stats_settings', style="primary"),
+        StyledInlineKeyboardButton(text=f"⚙️ {make_bold_unicode('File Limits')}", callback_data='admin_limits_settings', style="primary")
     )
     keyboard.row(
-        StyledInlineKeyboardButton(text=f"🎁 {make_bold_unicode('Refer Reward')}", callback_data='admin_refer_reward_setting')
+        StyledInlineKeyboardButton(text=f"🎁 {make_bold_unicode('Refer Reward')}", callback_data='admin_refer_reward_setting', style="primary")
     )
     lock_text = f"🔓 {make_bold_unicode('Unlock Bot')}" if bot_locked else f"🔒 {make_bold_unicode('Lock Bot')}"
     cb_text = 'unlock_bot' if bot_locked else 'lock_bot'
     keyboard.row(
-        StyledInlineKeyboardButton(text=lock_text, callback_data=cb_text),
-        StyledInlineKeyboardButton(text=f"🟢 {make_bold_unicode('Run All Scripts')}", callback_data='run_all_scripts')
+        StyledInlineKeyboardButton(text=lock_text, callback_data=cb_text, style="danger"),
+        StyledInlineKeyboardButton(text=f"🟢 {make_bold_unicode('Run All Scripts')}", callback_data='run_all_scripts', style="primary")
     )
     keyboard.row(
-        StyledInlineKeyboardButton(text=f"➕ {make_bold_unicode('Add Admin')}", callback_data='add_admin'),
-        StyledInlineKeyboardButton(text=f"➖ {make_bold_unicode('Remove Admin')}", callback_data='remove_admin')
+        StyledInlineKeyboardButton(text=f"➕ {make_bold_unicode('Add Admin')}", callback_data='add_admin', style="primary"),
+        StyledInlineKeyboardButton(text=f"➖ {make_bold_unicode('Remove Admin')}", callback_data='remove_admin', style="danger")
     )
-    keyboard.row(StyledInlineKeyboardButton(text=f"📋 {make_bold_unicode('List Admins')}", callback_data='list_admins'))
-    keyboard.row(StyledInlineKeyboardButton(text=f"🔙 {make_bold_unicode('Back')}", callback_data='back_to_main'))
+    keyboard.row(StyledInlineKeyboardButton(text=f"📋 {make_bold_unicode('List Admins')}", callback_data='list_admins', style="primary"))
+    keyboard.row(StyledInlineKeyboardButton(text=f"🔙 {make_bold_unicode('Back')}", callback_data='back_to_main', style="danger"))
     return keyboard
 
 def create_main_menu_inline(user_id):
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     keyboard.row(
-        StyledInlineKeyboardButton(text=f"📤 {make_bold_unicode('Upload File')}", callback_data='upload'),
-        StyledInlineKeyboardButton(text=f"📂 {make_bold_unicode('My Files')}", callback_data='check_files')
+        StyledInlineKeyboardButton(text=f"📤 {make_bold_unicode('Upload File')}", callback_data='upload', style="primary"),
+        StyledInlineKeyboardButton(text=f"📂 {make_bold_unicode('My Files')}", callback_data='check_files', style="primary")
     )
     keyboard.row(
-        StyledInlineKeyboardButton(text=f"⚡ {make_bold_unicode('Speed Test')}", callback_data='speed'),
-        StyledInlineKeyboardButton(text=f"📊 {make_bold_unicode('Statistics')}", callback_data='stats')
+        StyledInlineKeyboardButton(text=f"⚡ {make_bold_unicode('Speed Test')}", callback_data='speed', style="primary"),
+        StyledInlineKeyboardButton(text=f"📊 {make_bold_unicode('Statistics')}", callback_data='stats', style="primary")
     )
-    if user_id in admin_ids:
+    if is_admin(user_id):
         keyboard.row(
-            StyledInlineKeyboardButton(text=f"📤 {make_bold_unicode('Send Command')}", callback_data='send_command'),
-            StyledInlineKeyboardButton(text=f"👑 {make_bold_unicode('Admin Panel')}", callback_data='admin_panel')
+            StyledInlineKeyboardButton(text=f"📤 {make_bold_unicode('Send Command')}", callback_data='send_command', style="primary"),
+            StyledInlineKeyboardButton(text=f"👑 {make_bold_unicode('Admin Panel')}", callback_data='admin_panel', style="danger")
         )
     else:
-        keyboard.row(StyledInlineKeyboardButton(text=f"📤 {make_bold_unicode('Send Command')}", callback_data='send_command'))
+        keyboard.row(StyledInlineKeyboardButton(text=f"📤 {make_bold_unicode('Send Command')}", callback_data='send_command', style="primary"))
         
-    keyboard.row(StyledInlineKeyboardButton(text=f"📞 {make_bold_unicode('WhatsApp Contact')}", url=WHATSAPP_LINK))
+    keyboard.row(StyledInlineKeyboardButton(text=f"📞 {make_bold_unicode('WhatsApp Contact')}", url=WHATSAPP_LINK, style="primary"))
     return keyboard
 
 def create_control_buttons(owner_id, file_name, is_running=True):
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     if is_running:
         keyboard.row(
-            StyledInlineKeyboardButton(text=f"🔴 {make_bold_unicode('Stop')}", callback_data=f'stop_{owner_id}_{file_name}'),
-            StyledInlineKeyboardButton(text=f"🔄 {make_bold_unicode('Restart')}", callback_data=f'restart_{owner_id}_{file_name}')
+            StyledInlineKeyboardButton(text=f"🔴 {make_bold_unicode('Stop')}", callback_data=f'stop_{owner_id}_{file_name}', style="danger"),
+            StyledInlineKeyboardButton(text=f"🔄 {make_bold_unicode('Restart')}", callback_data=f'restart_{owner_id}_{file_name}', style="primary")
         )
         keyboard.row(
-            StyledInlineKeyboardButton(text=f"🗑️ {make_bold_unicode('Delete')}", callback_data=f'delete_{owner_id}_{file_name}'),
-            StyledInlineKeyboardButton(text=f"📜 {make_bold_unicode('Logs')}", callback_data=f'logs_{owner_id}_{file_name}')
+            StyledInlineKeyboardButton(text=f"🗑️ {make_bold_unicode('Delete')}", callback_data=f'delete_{owner_id}_{file_name}', style="danger"),
+            StyledInlineKeyboardButton(text=f"📜 {make_bold_unicode('Logs')}", callback_data=f'logs_{owner_id}_{file_name}', style="primary")
         )
     else:
         keyboard.row(
-            StyledInlineKeyboardButton(text=f"🟢 {make_bold_unicode('Start')}", callback_data=f'start_{owner_id}_{file_name}'),
-            StyledInlineKeyboardButton(text=f"🗑️ {make_bold_unicode('Delete')}", callback_data=f'delete_{owner_id}_{file_name}')
+            StyledInlineKeyboardButton(text=f"🟢 {make_bold_unicode('Start')}", callback_data=f'start_{owner_id}_{file_name}', style="primary"),
+            StyledInlineKeyboardButton(text=f"🗑️ {make_bold_unicode('Delete')}", callback_data=f'delete_{owner_id}_{file_name}', style="danger")
         )
         keyboard.row(
-            StyledInlineKeyboardButton(text=f"📜 {make_bold_unicode('View Logs')}", callback_data=f'logs_{owner_id}_{file_name}')
+            StyledInlineKeyboardButton(text=f"📜 {make_bold_unicode('View Logs')}", callback_data=f'logs_{owner_id}_{file_name}', style="primary")
         )
-    keyboard.row(StyledInlineKeyboardButton(text=f"🔙 {make_bold_unicode('Back')}", callback_data='check_files'))
+    keyboard.row(StyledInlineKeyboardButton(text=f"🔙 {make_bold_unicode('Back')}", callback_data='check_files', style="danger"))
     return keyboard
 
 def create_subscription_menu():
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     keyboard.row(
-        StyledInlineKeyboardButton(text=f"➕ {make_bold_unicode('Add Sub')}", callback_data='add_subscription'),
-        StyledInlineKeyboardButton(text=f"➖ {make_bold_unicode('Remove Sub')}", callback_data='remove_subscription')
+        StyledInlineKeyboardButton(text=f"➕ {make_bold_unicode('Add Sub')}", callback_data='add_subscription', style="primary"),
+        StyledInlineKeyboardButton(text=f"➖ {make_bold_unicode('Remove Sub')}", callback_data='remove_subscription', style="danger")
     )
-    keyboard.row(StyledInlineKeyboardButton(text=f"🔍 {make_bold_unicode('Check Sub')}", callback_data='check_subscription'))
-    keyboard.row(StyledInlineKeyboardButton(text=f"🔙 {make_bold_unicode('Back')}", callback_data='admin_panel'))
+    keyboard.row(StyledInlineKeyboardButton(text=f"🔍 {make_bold_unicode('Check Sub')}", callback_data='check_subscription', style="primary"))
+    keyboard.row(StyledInlineKeyboardButton(text=f"🔙 {make_bold_unicode('Back')}", callback_data='admin_panel', style="danger"))
     return keyboard
 
 def create_send_command_menu():
     keyboard = types.InlineKeyboardMarkup(row_width=2)
     keyboard.row(
-        StyledInlineKeyboardButton(text=f"📝 {make_bold_unicode('Send To Process')}", callback_data='send_to_process'),
-        StyledInlineKeyboardButton(text=f"🗂️ {make_bold_unicode('View All Logs')}", callback_data='view_all_logs')
+        StyledInlineKeyboardButton(text=f"📝 {make_bold_unicode('Send To Process')}", callback_data='send_to_process', style="primary"),
+        StyledInlineKeyboardButton(text=f"🗂️ {make_bold_unicode('View All Logs')}", callback_data='view_all_logs', style="primary")
     )
-    keyboard.row(StyledInlineKeyboardButton(text=f"🔙 {make_bold_unicode('Back')}", callback_data='back_to_main'))
+    keyboard.row(StyledInlineKeyboardButton(text=f"🔙 {make_bold_unicode('Back')}", callback_data='back_to_main', style="danger"))
     return keyboard
 
 # ==================== HELPERS & SCANNER ====================
 def is_member(user_id: int) -> bool:
-    if user_id in admin_ids: return True
+    if is_admin(user_id): return True
     if not force_join_channels: return True
     for ch in force_join_channels:
         try:
@@ -537,7 +543,7 @@ def get_user_folder(user_id):
 
 def get_user_file_limit(user_id):
     if user_id == OWNER_ID: return OWNER_LIMIT
-    if user_id in admin_ids: return ADMIN_LIMIT
+    if is_admin(user_id): return ADMIN_LIMIT
     ref_count = get_referral_count(user_id)
     bonus_files = ref_count * REFER_REWARD_FILES
     if user_id in user_subscriptions and user_subscriptions[user_id]['expiry'] > datetime.now(): 
@@ -669,11 +675,11 @@ def run_js_script(script_path, owner_id, user_folder, file_name, msg_obj, attemp
 def notify_admins_and_channel(user_id, file_name, file_path):
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.row(
-        StyledInlineKeyboardButton(text=f"✅ {make_bold_unicode('Approve')}", callback_data=f"approve_{user_id}_{file_name}"),
-        StyledInlineKeyboardButton(text=f"❌ {make_bold_unicode('Reject')}", callback_data=f"reject_{user_id}_{file_name}")
+        StyledInlineKeyboardButton(text=f"✅ {make_bold_unicode('Approve')}", callback_data=f"approve_{user_id}_{file_name}", style="primary"),
+        StyledInlineKeyboardButton(text=f"❌ {make_bold_unicode('Reject')}", callback_data=f"reject_{user_id}_{file_name}", style="danger")
     )
     markup.row(
-        StyledInlineKeyboardButton(text=f"💬 {make_bold_unicode('Chat With User')}", callback_data=f"chat_{user_id}")
+        StyledInlineKeyboardButton(text=f"💬 {make_bold_unicode('Chat With User')}", callback_data=f"chat_{user_id}", style="primary")
     )
     
     caption_text = f"📥 *{make_bold_unicode('New File Pending')}*\n\n👤 User: `{user_id}`\n📁 File: `{file_name}`"
@@ -783,11 +789,11 @@ def handle_py_file(path, owner_id, folder, name, msg):
 
 def send_to_process_init(message):
     user_id = message.from_user.id
-    running = [(k, v) for k, v in bot_scripts.items() if (user_id == v['script_owner_id'] or user_id in admin_ids) and is_bot_running(v['script_owner_id'], v['file_name'])]
+    running = [(k, v) for k, v in bot_scripts.items() if (user_id == v['script_owner_id'] or is_admin(user_id)) and is_bot_running(v['script_owner_id'], v['file_name'])]
     if not running: bot.reply_to(message, "❌ No running scripts found."); return
     markup = types.InlineKeyboardMarkup(row_width=1)
-    for key, info in running: markup.add(StyledInlineKeyboardButton(text=f"{info['file_name']} (UID: {info['script_owner_id']})", callback_data=f'sendcmd_select_{key}'))
-    markup.add(StyledInlineKeyboardButton(text=f"🔙 {make_bold_unicode('Back')}", callback_data='send_command'))
+    for key, info in running: markup.add(StyledInlineKeyboardButton(text=f"{info['file_name']} (UID: {info['script_owner_id']})", callback_data=f'sendcmd_select_{key}', style="primary"))
+    markup.add(StyledInlineKeyboardButton(text=f"🔙 {make_bold_unicode('Back')}", callback_data='send_command', style="danger"))
     bot.reply_to(message, "📝 Select script:", reply_markup=markup)
 
 def process_send_command(message, script_key):
@@ -810,8 +816,8 @@ def view_all_logs(message):
             if f.endswith('.log'): logs.append((f, os.path.getsize(os.path.join(folder, f)), os.path.join(folder, f)))
     if not logs: bot.reply_to(message, "📜 No log files found."); return
     markup = types.InlineKeyboardMarkup(row_width=1)
-    for lf, sz, _ in sorted(logs): markup.add(StyledInlineKeyboardButton(text=f"{lf} ({sz/1024:.1f} KB)", callback_data=f'viewlog_{user_id}_{lf}'))
-    markup.add(StyledInlineKeyboardButton(text=f"🔙 {make_bold_unicode('Back')}", callback_data='send_command'))
+    for lf, sz, _ in sorted(logs): markup.add(StyledInlineKeyboardButton(text=f"{lf} ({sz/1024:.1f} KB)", callback_data=f'viewlog_{user_id}_{lf}', style="primary"))
+    markup.add(StyledInlineKeyboardButton(text=f"🔙 {make_bold_unicode('Back')}", callback_data='send_command', style="danger"))
     bot.reply_to(message, "📜 Log files:", reply_markup=markup)
 
 def send_log_file(message, log_path, log_filename):
@@ -838,15 +844,15 @@ def _logic_send_welcome(message):
                 except: pass
         except: pass
 
-    if bot_locked and user_id not in admin_ids:
+    if bot_locked and not is_admin(user_id):
         bot.send_message(chat_id, "⚠️ Bot is currently locked by admin. Try later."); return
 
     if not is_member(user_id):
         markup = types.InlineKeyboardMarkup()
         for idx, ch in enumerate(force_join_channels, 1):
             ch_clean = ch.lstrip('@')
-            markup.add(StyledInlineKeyboardButton(text=f"✅ Join Channel #{idx}", url=f"https://t.me/{ch_clean}"))
-        markup.add(StyledInlineKeyboardButton(text="🔄 I Joined — Verify", callback_data='verify_join'))
+            markup.add(StyledInlineKeyboardButton(text=f"✅ Join Channel #{idx}", url=f"https://t.me/{ch_clean}", style="primary"))
+        markup.add(StyledInlineKeyboardButton(text="🔄 I Joined — Verify", callback_data='verify_join', style="primary"))
         bot.send_message(chat_id, f"👋 Welcome to *{BOT_NAME}*!\n\n⚠️ You must join our required channels first to continue.", reply_markup=markup, parse_mode='Markdown')
         return
 
@@ -868,7 +874,7 @@ def _logic_send_welcome(message):
     expiry_info  = ""
 
     if user_id == OWNER_ID:        user_status = "👑 Owner"
-    elif user_id in admin_ids:     user_status = "🛡️ Admin"
+    elif is_admin(user_id):        user_status = "🛡️ Admin"
     elif user_id in user_subscriptions:
         exp = user_subscriptions[user_id].get('expiry')
         if exp and exp > datetime.now():
@@ -889,7 +895,7 @@ def _logic_send_welcome(message):
 
 def _logic_upload_file(message):
     user_id = message.from_user.id
-    if bot_locked and user_id not in admin_ids: bot.reply_to(message, "⚠️ Bot locked. Cannot accept files."); return
+    if bot_locked and not is_admin(user_id): bot.reply_to(message, "⚠️ Bot locked. Cannot accept files."); return
     limit = get_user_file_limit(user_id)
     count = get_user_file_count(user_id)
     if count >= limit: bot.reply_to(message, f"⚠️ File limit reached ({count}/{str(limit) if limit != float('inf') else '∞'}). Delete a file first."); return
@@ -898,7 +904,6 @@ def _logic_upload_file(message):
     try: bot.send_photo(message.chat.id, UPLOAD_IMAGE_URL, caption=upload_msg, parse_mode='Markdown')
     except: bot.reply_to(message, upload_msg, parse_mode='Markdown')
 
-# RESTORED ORIGINAL MY FILES FUNCTION (Lists uploaded files)
 def _logic_check_files(message):
     user_id = message.from_user.id
     files   = user_files.get(user_id, [])
@@ -909,10 +914,10 @@ def _logic_check_files(message):
     for file_item in sorted(files):
         fn, ft, st = file_item[0], file_item[1], file_item[2] if len(file_item) > 2 else 'Approved'
         if st == 'Pending': 
-            markup.add(StyledInlineKeyboardButton(text=f"⏳ {fn} [{ft}] (Pending)", callback_data=f'file_{user_id}_{fn}'))
+            markup.add(StyledInlineKeyboardButton(text=f"⏳ {fn} [{ft}] (Pending)", callback_data=f'file_{user_id}_{fn}', style="primary"))
         else:
             running = is_bot_running(user_id, fn)
-            markup.add(StyledInlineKeyboardButton(text=f"{'🟢' if running else '🔴'} {fn} [{ft}]", callback_data=f'file_{user_id}_{fn}'))
+            markup.add(StyledInlineKeyboardButton(text=f"{'🟢' if running else '🔴'} {fn} [{ft}]", callback_data=f'file_{user_id}_{fn}', style="primary"))
     bot.reply_to(message, f"📂 *{make_bold_unicode('Your Files')}* — tap to manage:", reply_markup=markup, parse_mode='Markdown')
 
 def _logic_bot_speed(message):
@@ -922,7 +927,7 @@ def _logic_bot_speed(message):
         ms = round((time.time() - t0) * 1000, 2)
         uid = message.from_user.id
         if uid == OWNER_ID:     lvl = "👑 Owner"
-        elif uid in admin_ids:  lvl = "🛡️ Admin"
+        elif is_admin(uid):     lvl = "🛡️ Admin"
         elif uid in user_subscriptions and user_subscriptions[uid].get('expiry', datetime.min) > datetime.now(): lvl = "⭐ Premium"
         else: lvl = "🆓 Free"
         text = f"⚡ *{make_bold_unicode('Speed Report')}*\n━━━━━━━━━━━━━━━\n📶 Ping: `{ms} ms`\n🚦 Bot: {'🔒 Locked' if bot_locked else '🟢 Online'}\n👤 You: {lvl}"
@@ -933,11 +938,11 @@ def _logic_bot_speed(message):
 
 def _logic_contact_owner(message):
     markup = types.InlineKeyboardMarkup()
-    markup.add(StyledInlineKeyboardButton(text=f"💬 {make_bold_unicode('Contact')} {CREDIT}", url=f'https://t.me/{YOUR_USERNAME.lstrip("@")}'))
+    markup.add(StyledInlineKeyboardButton(text=f"💬 {make_bold_unicode('Contact')} {CREDIT}", url=f'https://t.me/{YOUR_USERNAME.lstrip("@")}', style="primary"))
     bot.reply_to(message, "📞 Tap to contact the owner/developer:", reply_markup=markup)
 
 def _logic_subscriptions_panel(message):
-    if message.from_user.id not in admin_ids: bot.reply_to(message, "⚠️ Admin only."); return
+    if not is_admin(message.from_user.id): bot.reply_to(message, "⚠️ Admin only."); return
     bot.reply_to(message, f"💳 *{make_bold_unicode('Subscription Manager')}*", reply_markup=create_subscription_menu(), parse_mode='Markdown')
 
 def _logic_how_to_use(message):
@@ -1008,16 +1013,45 @@ def _logic_refer_earn(message):
 
 def _logic_whatsapp_contact(message):
     markup = types.InlineKeyboardMarkup()
-    markup.add(StyledInlineKeyboardButton(text=f"💬 {make_bold_unicode('Open WhatsApp Contact')}", url=WHATSAPP_LINK))
+    markup.add(StyledInlineKeyboardButton(text=f"💬 {make_bold_unicode('Open WhatsApp Contact')}", url=WHATSAPP_LINK, style="primary"))
     bot.reply_to(message, "📞 Click below to chat directly with Owner on WhatsApp:", reply_markup=markup)
 
 def _logic_send_command(message):
-    if bot_locked and message.from_user.id not in admin_ids: bot.reply_to(message, "⚠️ Bot locked."); return
+    if bot_locked and not is_admin(message.from_user.id): bot.reply_to(message, "⚠️ Bot locked."); return
     bot.reply_to(message, f"📤 *{make_bold_unicode('Send Command')}*", reply_markup=create_send_command_menu(), parse_mode='Markdown')
 
+# ==================== ENHANCED & DETAILED ADMIN DASHBOARD ====================
 def _logic_admin_panel(message):
-    if message.from_user.id not in admin_ids: bot.reply_to(message, "⚠️ Admin only."); return
-    bot.reply_to(message, f"👑 *{make_bold_unicode('Admin Panel')}*", reply_markup=create_admin_panel(), parse_mode='Markdown')
+    if not is_admin(message.from_user.id): 
+        bot.reply_to(message, "⚠️ Admin only."); return
+
+    running_real = sum(1 for k, v in bot_scripts.items() if is_bot_running(v['script_owner_id'], v['file_name']))
+    total_files_count = sum(len(v) for v in user_files.values())
+    total_users_count = len(active_users) + fake_users_count
+    total_active_scripts = running_real + fake_scripts_count
+    
+    admin_dashboard_text = (
+        f"👑 *{make_bold_unicode('Admin Control Dashboard')}*\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👥 *{make_bold_unicode('Total Users')}:* `{total_users_count}` (Real: {len(active_users)})\n"
+        f"🟢 *{make_bold_unicode('Active Running Bots')}:* `{total_active_scripts}` (Real: {running_real})\n"
+        f"📁 *{make_bold_unicode('Total Files Hosted')}:* `{total_files_count}`\n"
+        f"🛡️ *{make_bold_unicode('Total Admins')}:* `{len(admin_ids)}`\n"
+        f"🔒 *{make_bold_unicode('Bot Status')}:* `{'Locked 🔒' if bot_locked else 'Online 🟢'}`\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"⚙️ *{make_bold_unicode('Configured Limits')}:*\n"
+        f"• Free Limit: `{FREE_USER_LIMIT} Files`\n"
+        f"• Premium Limit: `{SUBSCRIBED_USER_LIMIT} Files`\n"
+        f"• Refer Reward: `+{REFER_REWARD_FILES} Slot/Ref`\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📢 *{make_bold_unicode('Channels Setup')}:*\n"
+        f"• Approval Chan: `{APPROVAL_CHANNEL or 'Not Set'}`\n"
+        f"• Update Chan: `{UPDATE_CHANNEL or 'Not Set'}`\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👇 Select an action below to manage:"
+    )
+    
+    bot.reply_to(message, admin_dashboard_text, reply_markup=create_admin_panel(), parse_mode='Markdown')
 
 def _logic_statistics(message):
     user_id = message.from_user.id
@@ -1056,7 +1090,7 @@ def _logic_statistics(message):
         bot.send_message(message.chat.id, caption_text, parse_mode='Markdown')
 
 def _logic_broadcast_init(message):
-    if message.from_user.id not in admin_ids: 
+    if not is_admin(message.from_user.id): 
         bot.reply_to(message, "⚠️ Admin only.")
         return
     guide_text = (
@@ -1081,7 +1115,7 @@ def _logic_broadcast_init(message):
     bot.register_next_step_handler(msg, process_broadcast_message)
 
 def _logic_toggle_lock_bot(message):
-    if message.from_user.id not in admin_ids: bot.reply_to(message, "⚠️ Admin only."); return
+    if not is_admin(message.from_user.id): bot.reply_to(message, "⚠️ Admin only."); return
     global bot_locked
     bot_locked = not bot_locked
     bot.reply_to(message, f"Bot is now {'🔒 Locked' if bot_locked else '🟢 Unlocked'}.")
@@ -1089,7 +1123,7 @@ def _logic_toggle_lock_bot(message):
 def _logic_run_all_scripts(moc):
     if isinstance(moc, types.Message): uid = moc.from_user.id; cid = moc.chat.id; reply = lambda t, **kw: bot.reply_to(moc, t, **kw); msg_for_script = moc
     else: uid = moc.from_user.id; cid = moc.message.chat.id; bot.answer_callback_query(moc.id); reply = lambda t, **kw: bot.send_message(cid, t, **kw); msg_for_script = moc.message
-    if uid not in admin_ids: reply("⚠️ Admin only."); return
+    if not is_admin(uid): reply("⚠️ Admin only."); return
     reply("⏳ Starting all stopped scripts...")
     started = 0; skipped = 0
     for tuid, files in dict(user_files).items():
@@ -1106,7 +1140,7 @@ def _logic_run_all_scripts(moc):
             except: skipped += 1
     reply(f"✅ Done! Started: {started} | Skipped: {skipped}")
 
-# RESTORED EXACT FULL BUTTON MAPPING WITH PREMIUM UNICODE SUPPORT
+# BUTTON MAPPING WITH UNICODE MATCHING
 BUTTON_MAP = {
     f"📤 {make_bold_unicode('Upload File')}":          _logic_upload_file,
     f"📂 {make_bold_unicode('My Files')}":             _logic_check_files,
@@ -1152,13 +1186,13 @@ def admin_show_fake_stats_panel(chat_id, message_id=None):
     )
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.row(
-        StyledInlineKeyboardButton(text="✏️ Set Fake Users", callback_data="set_fake_users"),
-        StyledInlineKeyboardButton(text="✏️ Set Fake Scripts", callback_data="set_fake_scripts")
+        StyledInlineKeyboardButton(text="✏️ Set Fake Users", callback_data="set_fake_users", style="primary"),
+        StyledInlineKeyboardButton(text="✏️ Set Fake Scripts", callback_data="set_fake_scripts", style="primary")
     )
     markup.row(
-        StyledInlineKeyboardButton(text="🔄 Reset Extra Stats", callback_data="reset_fake_stats")
+        StyledInlineKeyboardButton(text="🔄 Reset Extra Stats", callback_data="reset_fake_stats", style="danger")
     )
-    markup.row(StyledInlineKeyboardButton(text="🔙 Back", callback_data="admin_panel"))
+    markup.row(StyledInlineKeyboardButton(text="🔙 Back", callback_data="admin_panel", style="danger"))
     
     if message_id:
         try: bot.edit_message_text(text, chat_id, message_id, reply_markup=markup, parse_mode='Markdown')
@@ -1212,7 +1246,7 @@ def process_admin_user_details(message):
             f"━━━━━━━━━━━━━━━━━━━━━"
         )
         markup = types.InlineKeyboardMarkup()
-        markup.add(StyledInlineKeyboardButton(text=f"💬 Chat with `{uid}`", callback_data=f"chat_{uid}"))
+        markup.add(StyledInlineKeyboardButton(text=f"💬 Chat with `{uid}`", callback_data=f"chat_{uid}", style="primary"))
         bot.reply_to(message, msg_text, reply_markup=markup, parse_mode='Markdown')
     except:
         bot.reply_to(message, "❌ Invalid User ID. Enter a numeric ID.")
@@ -1242,14 +1276,14 @@ def admin_show_channel_settings(chat_id, message_id=None):
     )
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.row(
-        StyledInlineKeyboardButton(text="➕ Add Force Join", callback_data="add_fj_chan"),
-        StyledInlineKeyboardButton(text="➖ Remove Force Join", callback_data="rem_fj_chan")
+        StyledInlineKeyboardButton(text="➕ Add Force Join", callback_data="add_fj_chan", style="primary"),
+        StyledInlineKeyboardButton(text="➖ Remove Force Join", callback_data="rem_fj_chan", style="danger")
     )
     markup.row(
-        StyledInlineKeyboardButton(text="✏️ Set Approval Chan", callback_data="set_approval_chan"),
-        StyledInlineKeyboardButton(text="✏️ Set Update Chan", callback_data="set_update_chan")
+        StyledInlineKeyboardButton(text="✏️ Set Approval Chan", callback_data="set_approval_chan", style="primary"),
+        StyledInlineKeyboardButton(text="✏️ Set Update Chan", callback_data="set_update_chan", style="primary")
     )
-    markup.row(StyledInlineKeyboardButton(text="🔙 Back", callback_data="admin_panel"))
+    markup.row(StyledInlineKeyboardButton(text="🔙 Back", callback_data="admin_panel", style="danger"))
     
     if message_id:
         try: bot.edit_message_text(text, chat_id, message_id, reply_markup=markup, parse_mode='Markdown')
@@ -1320,10 +1354,10 @@ def admin_show_limits_panel(chat_id, message_id=None):
     )
     markup = types.InlineKeyboardMarkup(row_width=2)
     markup.row(
-        StyledInlineKeyboardButton(text="✏️ Set Free Limit", callback_data="set_free_limit"),
-        StyledInlineKeyboardButton(text="✏️ Set Subscribed Limit", callback_data="set_sub_limit")
+        StyledInlineKeyboardButton(text="✏️ Set Free Limit", callback_data="set_free_limit", style="primary"),
+        StyledInlineKeyboardButton(text="✏️ Set Subscribed Limit", callback_data="set_sub_limit", style="primary")
     )
-    markup.row(StyledInlineKeyboardButton(text="🔙 Back", callback_data="admin_panel"))
+    markup.row(StyledInlineKeyboardButton(text="🔙 Back", callback_data="admin_panel", style="danger"))
     if message_id: bot.edit_message_text(text, chat_id, message_id, reply_markup=markup, parse_mode='Markdown')
     else: bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
 
@@ -1360,21 +1394,6 @@ def handle_buttons(message):
     if banned: bot.reply_to(message, msg, parse_mode='Markdown'); return
     fn = BUTTON_MAP.get(message.text)
     if fn: fn(message)
-
-@bot.message_handler(commands=['uploadfile'])
-def cmd_upload(m): _logic_upload_file(m)
-@bot.message_handler(commands=['checkfiles'])
-def cmd_check(m):  _logic_check_files(m)
-@bot.message_handler(commands=['speed'])
-def cmd_speed(m):  _logic_bot_speed(m)
-@bot.message_handler(commands=['stats'])
-def cmd_stats(m):  _logic_statistics(m)
-@bot.message_handler(commands=['sendcommand'])
-def cmd_sendcmd(m): _logic_send_command(m)
-@bot.message_handler(commands=['contact'])
-def cmd_contact(m): _logic_contact_owner(m)
-@bot.message_handler(commands=['admin'])
-def cmd_admin(m):  _logic_admin_panel(m)
 
 # HEAVY ACTION: MULTI FILE UPLOADS TRACKING
 @bot.message_handler(content_types=['document'])
@@ -1431,10 +1450,11 @@ def parse_broadcast_text(raw_text):
         if len(parts) >= 3:
             btn_text, btn_target, btn_color = parts[0], parts[1], parts[2].lower()
             has_buttons = True
+            btn_style = "danger" if btn_color in ['danger', 'red'] else "primary"
             if btn_target.startswith('http://') or btn_target.startswith('https://') or btn_target.startswith('t.me/'):
                 url = btn_target if btn_target.startswith('http') else f"https://{btn_target}"
-                markup.add(StyledInlineKeyboardButton(text=btn_text, url=url))
-            else: markup.add(StyledInlineKeyboardButton(text=btn_text, callback_data=f"bcast_cmd_{btn_target}"))
+                markup.add(StyledInlineKeyboardButton(text=btn_text, url=url, style=btn_style))
+            else: markup.add(StyledInlineKeyboardButton(text=btn_text, callback_data=f"bcast_cmd_{btn_target}", style=btn_style))
         else: message_lines.append(line)
     final_text = "\n".join(message_lines).strip()
     return final_text, markup if has_buttons else None
@@ -1473,9 +1493,9 @@ def process_direct_chat_reply(message, target_id):
     
     try:
         markup = types.InlineKeyboardMarkup()
-        markup.add(StyledInlineKeyboardButton(text="💬 Reply Back", callback_data=f"chat_{sender_id}"))
+        markup.add(StyledInlineKeyboardButton(text="💬 Reply Back", callback_data=f"chat_{sender_id}", style="primary"))
         
-        header = f"📩 *Message from {'Admin' if sender_id in admin_ids else sender_name}:*"
+        header = f"📩 *Message from {'Admin' if is_admin(sender_id) else sender_name}:*"
         
         if message.text:
             bot.send_message(target_id, f"{header}\n\n{message.text}", reply_markup=markup, parse_mode='Markdown')
@@ -1498,7 +1518,7 @@ def handle_callbacks(call):
 
     # 1. APPROVAL & REJECT HANDLERS
     if data.startswith('approve_'):
-        if user_id not in admin_ids:
+        if not is_admin(user_id):
             bot.answer_callback_query(call.id, "⚠️ Admin only.", show_alert=True)
             return
         
@@ -1519,7 +1539,7 @@ def handle_callbacks(call):
         return
 
     if data.startswith('reject_'):
-        if user_id not in admin_ids:
+        if not is_admin(user_id):
             bot.answer_callback_query(call.id, "⚠️ Admin only.", show_alert=True)
             return
             
@@ -1551,7 +1571,7 @@ def handle_callbacks(call):
         return
 
     if data == 'admin_limits_settings':
-        if user_id in admin_ids: admin_show_limits_panel(call.message.chat.id, call.message.message_id)
+        if is_admin(user_id): admin_show_limits_panel(call.message.chat.id, call.message.message_id)
         return
 
     if data == 'set_free_limit':
@@ -1570,7 +1590,7 @@ def handle_callbacks(call):
         return
 
     if data == 'admin_fake_stats_settings':
-        if user_id in admin_ids:
+        if is_admin(user_id):
             admin_show_fake_stats_panel(call.message.chat.id, call.message.message_id)
         return
 
@@ -1594,23 +1614,23 @@ def handle_callbacks(call):
         return
 
     if data == 'admin_users_list':
-        if user_id in admin_ids:
+        if is_admin(user_id):
             u_str = "\n".join(f"• `{uid}`" for uid in sorted(active_users)) or "No active users."
             bot.send_message(call.message.chat.id, f"👥 *ACTIVE USERS LIST* (`{len(active_users)}`):\n\n{u_str}", parse_mode='Markdown')
         return
 
     if data == 'admin_user_details':
-        if user_id in admin_ids:
+        if is_admin(user_id):
             admin_prompt_user_details(call.message)
         return
 
     if data == 'admin_direct_chat_init':
-        if user_id in admin_ids:
+        if is_admin(user_id):
             admin_prompt_direct_chat_id(call.message)
         return
 
     if data == 'admin_channel_settings':
-        if user_id in admin_ids:
+        if is_admin(user_id):
             admin_show_channel_settings(call.message.chat.id, call.message.message_id)
         return
 
@@ -1642,7 +1662,7 @@ def handle_callbacks(call):
         else: bot.answer_callback_query(call.id, "❌ You haven't joined all required channels yet!", show_alert=True)
         return
 
-    if bot_locked and user_id not in admin_ids and data not in ['back_to_main','speed','stats']:
+    if bot_locked and not is_admin(user_id) and data not in ['back_to_main','speed','stats']:
         bot.answer_callback_query(call.id, "⚠️ Bot locked.", show_alert=True); return
 
     try:
@@ -1667,9 +1687,11 @@ def handle_callbacks(call):
         elif data == 'unlock_bot':       _admin_cb(call, unlock_bot_callback)
         elif data == 'run_all_scripts':  _admin_cb(call, run_all_scripts_callback)
         elif data == 'broadcast':        
-            if user_id in admin_ids:
+            if is_admin(user_id):
                 _logic_broadcast_init(call.message)
-        elif data == 'admin_panel':      _admin_cb(call, admin_panel_callback)
+        elif data == 'admin_panel':      
+            if is_admin(user_id):
+                _logic_admin_panel(call.message)
         elif data == 'add_admin':        _owner_cb(call, add_admin_init_callback)
         elif data == 'remove_admin':     _owner_cb(call, remove_admin_init_callback)
         elif data == 'list_admins':      _admin_cb(call, list_admins_callback)
@@ -1685,7 +1707,7 @@ def handle_callbacks(call):
     except: pass
 
 def _admin_cb(call, fn):
-    if call.from_user.id not in admin_ids: bot.answer_callback_query(call.id, "⚠️ Admin only.", show_alert=True); return
+    if not is_admin(call.from_user.id): bot.answer_callback_query(call.id, "⚠️ Admin only.", show_alert=True); return
     fn(call)
 
 def _owner_cb(call, fn):
@@ -1705,25 +1727,25 @@ def check_files_callback(call):
         bot.answer_callback_query(call.id, "⚠️ No files uploaded.", show_alert=True)
         try:
             markup = types.InlineKeyboardMarkup()
-            markup.add(StyledInlineKeyboardButton(text=f"🔙 {make_bold_unicode('Back')}", callback_data='back_to_main'))
+            markup.add(StyledInlineKeyboardButton(text=f"🔙 {make_bold_unicode('Back')}", callback_data='back_to_main', style="danger"))
             bot.edit_message_text("📂 No files yet.", call.message.chat.id, call.message.message_id, reply_markup=markup)
         except: pass
         return
     markup = types.InlineKeyboardMarkup(row_width=1)
     for file_item in sorted(files):
         fn, ft, st = file_item[0], file_item[1], file_item[2] if len(file_item) > 2 else 'Approved'
-        if st == 'Pending': markup.add(StyledInlineKeyboardButton(text=f"⏳ {fn} [{ft}] (Pending)", callback_data=f'file_{user_id}_{fn}'))
+        if st == 'Pending': markup.add(StyledInlineKeyboardButton(text=f"⏳ {fn} [{ft}] (Pending)", callback_data=f'file_{user_id}_{fn}', style="primary"))
         else:
             icon = "🟢" if is_bot_running(user_id, fn) else "🔴"
-            markup.add(StyledInlineKeyboardButton(text=f"{icon} {fn} [{ft}]", callback_data=f'file_{user_id}_{fn}'))
-    markup.add(StyledInlineKeyboardButton(text=f"🔙 {make_bold_unicode('Back')}", callback_data='back_to_main'))
+            markup.add(StyledInlineKeyboardButton(text=f"{icon} {fn} [{ft}]", callback_data=f'file_{user_id}_{fn}', style="primary"))
+    markup.add(StyledInlineKeyboardButton(text=f"🔙 {make_bold_unicode('Back')}", callback_data='back_to_main', style="danger"))
     try: bot.edit_message_text("📂 *Your Files*:", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode='Markdown')
     except: pass
 
 def file_control_callback(call):
     try:
         _, oid_str, fname = call.data.split('_', 2); oid = int(oid_str); uid = call.from_user.id
-        if not (uid == oid or uid in admin_ids): bot.answer_callback_query(call.id, "⚠️ Permission denied.", show_alert=True); return
+        if not (uid == oid or is_admin(uid)): bot.answer_callback_query(call.id, "⚠️ Permission denied.", show_alert=True); return
         files = user_files.get(oid, [])
         file_record = next((f for f in files if f[0] == fname), None)
         if not file_record: bot.answer_callback_query(call.id, "⚠️ File not found.", show_alert=True); return
@@ -1731,8 +1753,8 @@ def file_control_callback(call):
         
         if st == 'Pending':
             markup = types.InlineKeyboardMarkup(row_width=1)
-            markup.add(StyledInlineKeyboardButton(text=f"🗑️ {make_bold_unicode('Delete')}", callback_data=f'delete_{oid}_{fname}'))
-            markup.add(StyledInlineKeyboardButton(text=f"🔙 {make_bold_unicode('Back')}", callback_data='check_files'))
+            markup.add(StyledInlineKeyboardButton(text=f"🗑️ {make_bold_unicode('Delete')}", callback_data=f'delete_{oid}_{fname}', style="danger"))
+            markup.add(StyledInlineKeyboardButton(text=f"🔙 {make_bold_unicode('Back')}", callback_data='check_files', style="danger"))
             bot.edit_message_text(f"⚙️ *{fname}* `[{ft}]`\nStatus: ⏳ Pending Admin Approval", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode='Markdown')
         else:
             running = is_bot_running(oid, fname)
@@ -1743,7 +1765,7 @@ def file_control_callback(call):
 def start_bot_callback(call):
     try:
         _, oid_str, fname = call.data.split('_', 2); oid = int(oid_str); uid = call.from_user.id
-        if not (uid == oid or uid in admin_ids): bot.answer_callback_query(call.id, "⚠️ Permission denied.", show_alert=True); return
+        if not (uid == oid or is_admin(uid)): bot.answer_callback_query(call.id, "⚠️ Permission denied.", show_alert=True); return
         files = user_files.get(oid, [])
         fi = next((f for f in files if f[0] == fname), None)
         if not fi: bot.answer_callback_query(call.id, "⚠️ File not found.", show_alert=True); return
@@ -1763,7 +1785,7 @@ def start_bot_callback(call):
 def stop_bot_callback(call):
     try:
         _, oid_str, fname = call.data.split('_', 2); oid = int(oid_str); uid = call.from_user.id
-        if not (uid == oid or uid in admin_ids): bot.answer_callback_query(call.id, "⚠️ Permission denied.", show_alert=True); return
+        if not (uid == oid or is_admin(uid)): bot.answer_callback_query(call.id, "⚠️ Permission denied.", show_alert=True); return
         files = user_files.get(oid, [])
         fi = next((f for f in files if f[0] == fname), None)
         if not fi: bot.answer_callback_query(call.id, "⚠️ File not found.", show_alert=True); return
@@ -1778,7 +1800,7 @@ def stop_bot_callback(call):
 def restart_bot_callback(call):
     try:
         _, oid_str, fname = call.data.split('_', 2); oid = int(oid_str); uid = call.from_user.id
-        if not (uid == oid or uid in admin_ids): bot.answer_callback_query(call.id, "⚠️ Permission denied.", show_alert=True); return
+        if not (uid == oid or is_admin(uid)): bot.answer_callback_query(call.id, "⚠️ Permission denied.", show_alert=True); return
         files = user_files.get(oid, [])
         fi = next((f for f in files if f[0] == fname), None)
         if not fi: bot.answer_callback_query(call.id, "⚠️ File not found.", show_alert=True); return
@@ -1800,7 +1822,7 @@ def restart_bot_callback(call):
 def delete_bot_callback(call):
     try:
         _, oid_str, fname = call.data.split('_', 2); oid = int(oid_str); uid = call.from_user.id
-        if not (uid == oid or uid in admin_ids): bot.answer_callback_query(call.id, "⚠️ Permission denied.", show_alert=True); return
+        if not (uid == oid or is_admin(uid)): bot.answer_callback_query(call.id, "⚠️ Permission denied.", show_alert=True); return
         if not any(f[0] == fname for f in user_files.get(oid, [])): bot.answer_callback_query(call.id, "⚠️ File not found.", show_alert=True); return
         key = f"{oid}_{fname}"
         if is_bot_running(oid, fname):
@@ -1819,7 +1841,7 @@ def delete_bot_callback(call):
 def logs_bot_callback(call):
     try:
         _, oid_str, fname = call.data.split('_', 2); oid = int(oid_str); uid = call.from_user.id
-        if not (uid == oid or uid in admin_ids): bot.answer_callback_query(call.id, "⚠️ Permission denied.", show_alert=True); return
+        if not (uid == oid or is_admin(uid)): bot.answer_callback_query(call.id, "⚠️ Permission denied.", show_alert=True); return
         if not any(f[0] == fname for f in user_files.get(oid, [])): bot.answer_callback_query(call.id, "⚠️ File not found.", show_alert=True); return
         log_path = os.path.join(get_user_folder(oid), f"{os.path.splitext(fname)[0]}.log")
         if not os.path.exists(log_path): bot.answer_callback_query(call.id, "⚠️ No logs yet.", show_alert=True); return
@@ -1842,7 +1864,7 @@ def speed_callback(call):
         bot.send_chat_action(cid, 'typing')
         ms = round((time.time() - t0) * 1000, 2)
         if uid == OWNER_ID:    lvl = "👑 Owner"
-        elif uid in admin_ids: lvl = "🛡️ Admin"
+        elif is_admin(uid):    lvl = "🛡️ Admin"
         elif uid in user_subscriptions and user_subscriptions[uid].get('expiry', datetime.min) > datetime.now(): lvl = "⭐ Premium"
         else: lvl = "🆓 Free"
         text = f"⚡ *Speed Report*\n━━━━━━━━━━━━━━━\n📶 Ping: `{ms} ms`\n🚦 Bot: {'🔒 Locked' if bot_locked else '🟢 Online'}\n👤 You: {lvl}\n━━━━━━━━━━━━━━━"
@@ -1857,7 +1879,7 @@ def back_to_main_callback(call):
     limit = get_user_file_limit(uid); count = get_user_file_count(uid)
     ls = str(limit) if limit != float('inf') else "∞"
     if uid == OWNER_ID:    st = "👑 Owner"
-    elif uid in admin_ids: st = "🛡️ Admin"
+    elif is_admin(uid):    st = "🛡️ Admin"
     elif uid in user_subscriptions:
         exp = user_subscriptions[uid].get('expiry')
         st  = "⭐ Premium" if exp and exp > datetime.now() else "🆓 Free"
@@ -1881,7 +1903,7 @@ def view_all_logs_callback(call):
 def viewlog_callback(call):
     try:
         _, uid_str, lf = call.data.split('_', 2); uid = int(uid_str); req = call.from_user.id
-        if not (req == uid or req in admin_ids): bot.answer_callback_query(call.id, "⚠️ Permission denied.", show_alert=True); return
+        if not (req == uid or is_admin(req)): bot.answer_callback_query(call.id, "⚠️ Permission denied.", show_alert=True); return
         lpath = os.path.join(get_user_folder(uid), lf)
         if not os.path.exists(lpath): bot.answer_callback_query(call.id, "❌ Log not found.", show_alert=True); return
         send_log_file(call.message, lpath, lf)
@@ -1907,7 +1929,7 @@ def unlock_bot_callback(call):
 def run_all_scripts_callback(call): _logic_run_all_scripts(call)
 
 def process_broadcast_message(message):
-    if message.from_user.id not in admin_ids: bot.reply_to(message, "⚠️ Admin only."); return
+    if not is_admin(message.from_user.id): bot.reply_to(message, "⚠️ Admin only."); return
     if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Broadcast cancelled."); return
     if not message.text and not (message.photo or message.video or message.document):
         msg = bot.reply_to(message, "⚠️ Empty message. Send content or /cancel.")
@@ -1919,14 +1941,14 @@ def process_broadcast_message(message):
     if not broadcast_markup: broadcast_markup = types.InlineKeyboardMarkup()
     
     broadcast_markup.row(
-        StyledInlineKeyboardButton(text=f"✅ {make_bold_unicode('Confirm')}", callback_data=f"confirm_broadcast_{message.message_id}"),
-        StyledInlineKeyboardButton(text=f"❌ {make_bold_unicode('Cancel')}",  callback_data="cancel_broadcast")
+        StyledInlineKeyboardButton(text=f"✅ {make_bold_unicode('Confirm')}", callback_data=f"confirm_broadcast_{message.message_id}", style="primary"),
+        StyledInlineKeyboardButton(text=f"❌ {make_bold_unicode('Cancel')}",  callback_data="cancel_broadcast", style="danger")
     )
     preview = clean_text[:800] if clean_text else "(media/buttons)"
     bot.reply_to(message, f"📢 Broadcast to *{len(active_users)}* users?\n\nPreview:\n```\n{preview}\n```", reply_markup=broadcast_markup, parse_mode='Markdown')
 
 def handle_confirm_broadcast(call):
-    if call.from_user.id not in admin_ids: bot.answer_callback_query(call.id, "⚠️ Admin only.", show_alert=True); return
+    if not is_admin(call.from_user.id): bot.answer_callback_query(call.id, "⚠️ Admin only.", show_alert=True); return
     try:
         orig = call.message.reply_to_message
         if not orig: raise ValueError("Original message not found.")
@@ -1976,8 +1998,8 @@ def execute_broadcast(text, photo, video, caption, admin_cid):
     except: pass
 
 def admin_panel_callback(call):
-    try: bot.edit_message_text("👑 *Admin Panel*", call.message.chat.id, call.message.message_id, reply_markup=create_admin_panel(), parse_mode='Markdown')
-    except: pass
+    if is_admin(call.from_user.id):
+        _logic_admin_panel(call.message)
 
 def add_admin_init_callback(call):
     msg = bot.send_message(call.message.chat.id, "👑 Enter User ID to promote. /cancel to abort.")
@@ -2028,7 +2050,7 @@ def add_subscription_init_callback(call):
     bot.register_next_step_handler(msg, process_add_subscription_details)
 
 def process_add_subscription_details(message):
-    if message.from_user.id not in admin_ids: bot.reply_to(message, "⚠️ Admin only."); return
+    if not is_admin(message.from_user.id): bot.reply_to(message, "⚠️ Admin only."); return
     if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
     try:
         parts = message.text.split()
@@ -2051,7 +2073,7 @@ def remove_subscription_init_callback(call):
     bot.register_next_step_handler(msg, process_remove_subscription_id)
 
 def process_remove_subscription_id(message):
-    if message.from_user.id not in admin_ids: bot.reply_to(message, "⚠️ Admin only."); return
+    if not is_admin(message.from_user.id): bot.reply_to(message, "⚠️ Admin only."); return
     if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
     try:
         uid = int(message.text.strip())
@@ -2069,7 +2091,7 @@ def check_subscription_init_callback(call):
     bot.register_next_step_handler(msg, process_check_subscription_id)
 
 def process_check_subscription_id(message):
-    if message.from_user.id not in admin_ids: bot.reply_to(message, "⚠️ Admin only."); return
+    if not is_admin(message.from_user.id): bot.reply_to(message, "⚠️ Admin only."); return
     if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
     try:
         uid = int(message.text.strip())
