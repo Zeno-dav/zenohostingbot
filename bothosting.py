@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-#Zeno Host Bot — Credit: 𐌆ᴇɴᴏ
+# Zeno Host Bot — Credit: 𐌆ᴇɴᴏ
 import telebot
 import subprocess
 import os
@@ -35,31 +35,13 @@ def make_bold_unicode(text):
             out.append(char)
     return "".join(out)
 
-def normalize_stylized_text(text):
-    if not text:
-        return ""
-    out = []
-    for char in text:
-        cp = ord(char)
-        if 0x1D5D4 <= cp <= 0x1D5ED:
-            out.append(chr(cp - 0x1D5D4 + 65))
-        elif 0x1D5EE <= cp <= 0x1D607:
-            out.append(chr(cp - 0x1D5EE + 97))
-        elif 0x1D7EC <= cp <= 0x1D7F5:
-            out.append(chr(cp - 0x1D7EC + 48))
-        else:
-            out.append(char)
-    return "".join(out)
-
 class StyledKeyboardButton(types.KeyboardButton):
     def __init__(self, text, *args, **kwargs):
-        # Automatically removes style so Telebot doesn't crash (400 Bad Request Fix)
         kwargs.pop('style', None) 
         super().__init__(text=text, *args, **kwargs)
 
 class StyledInlineKeyboardButton(types.InlineKeyboardButton):
     def __init__(self, text, *args, **kwargs):
-        # Automatically removes style so Telebot doesn't crash
         kwargs.pop('style', None)
         super().__init__(text=text, *args, **kwargs)
 
@@ -81,17 +63,12 @@ def keep_alive():
     t = Thread(target=run_flask)
     t.daemon = True
     t.start()
-    print("Flask Keep-Alive server started.")
-# --- End Flask Keep Alive ---
 
 # ==================== CONFIGURATION ====================
 TOKEN = '8944656955:AAG0euNjXMO0tTaGoJrA5R6nRJnOoLS5nfs'
 OWNER_ID = 8271186073
 ADMIN_ID  = 8271186073
 YOUR_USERNAME = '@Zeno098'
-UPDATE_CHANNEL = '@zenoexploit1'
-FORCE_JOIN_CHANNEL = '@zenoexploit1'   
-APPROVAL_CHANNEL = '@zenohostingfile' 
 BOT_NAME = f"{make_bold_unicode('ZENO HOSTING')} 💗"
 CREDIT = "𐌆ᴇɴᴏ"
 
@@ -120,6 +97,11 @@ active_users = set()
 admin_ids = {ADMIN_ID, OWNER_ID}
 bot_locked = False
 
+# Dynamic Channels State
+force_join_channels = set()
+APPROVAL_CHANNEL = ""
+UPDATE_CHANNEL = ""
+
 MALWARE_SIGNATURES = [b'MZ', b'\x7fELF', b'\xfe\xed\xfa', b'\xce\xfa\xed\xfe', b'PK', b'Rar!']
 ENCRYPTED_FILE_INDICATORS = [b'openssl', b'encrypted', b'cipher', b'AES', b'DES', b'RSA', b'GPG', b'PGP']
 SUSPICIOUS_KEYWORDS = [b'ransomware', b'trojan', b'virus', b'malware', b'backdoor', b'exploit', b'payload', b'botnet', b'keylogger', b'rootkit']
@@ -128,25 +110,31 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(level
 logger = logging.getLogger(__name__)
 
 def init_db():
-    logger.info(f"Initializing database at: {DATABASE_PATH}")
     try:
         conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
         c = conn.cursor()
         c.execute('''CREATE TABLE IF NOT EXISTS subscriptions (user_id INTEGER PRIMARY KEY, expiry TEXT)''')
         c.execute('''CREATE TABLE IF NOT EXISTS user_files (user_id INTEGER, file_name TEXT, file_type TEXT, status TEXT DEFAULT 'Pending', PRIMARY KEY (user_id, file_name))''')
-        try: c.execute("ALTER TABLE user_files ADD COLUMN status TEXT DEFAULT 'Approved'")
-        except sqlite3.OperationalError: pass
         c.execute('''CREATE TABLE IF NOT EXISTS active_users (user_id INTEGER PRIMARY KEY)''')
         c.execute('''CREATE TABLE IF NOT EXISTS admins (user_id INTEGER PRIMARY KEY)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS channels (channel_type TEXT, channel_val TEXT PRIMARY KEY)''')
+        
         c.execute('INSERT OR IGNORE INTO admins (user_id) VALUES (?)', (OWNER_ID,))
         if ADMIN_ID != OWNER_ID:
             c.execute('INSERT OR IGNORE INTO admins (user_id) VALUES (?)', (ADMIN_ID,))
+            
+        # Default Fallback Channel
+        c.execute('INSERT OR IGNORE INTO channels VALUES (?, ?)', ('force_join', '@zenoexploit1'))
+        c.execute('INSERT OR IGNORE INTO channels VALUES (?, ?)', ('approval', '@zenoexploit1'))
+        c.execute('INSERT OR IGNORE INTO channels VALUES (?, ?)', ('update', '@zenoexploit1'))
+        
         conn.commit()
         conn.close()
     except Exception as e:
-        logger.error(f"❌ Database initialization error: {e}", exc_info=True)
+        logger.error(f"❌ Database init error: {e}")
 
 def load_data():
+    global APPROVAL_CHANNEL, UPDATE_CHANNEL
     try:
         conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
         c = conn.cursor()
@@ -162,6 +150,12 @@ def load_data():
         active_users.update(uid for (uid,) in c.fetchall())
         c.execute('SELECT user_id FROM admins')
         admin_ids.update(uid for (uid,) in c.fetchall())
+        
+        c.execute('SELECT channel_type, channel_val FROM channels')
+        for ctype, cval in c.fetchall():
+            if ctype == 'force_join': force_join_channels.add(cval)
+            elif ctype == 'approval': APPROVAL_CHANNEL = cval
+            elif ctype == 'update': UPDATE_CHANNEL = cval
         conn.close()
     except Exception as e: pass
 
@@ -267,10 +261,9 @@ def remove_admin_db(admin_id):
         finally: conn.close()
         return removed
 
-# ==================== EXPLICIT KEYBOARDS SECTION ====================
+# ==================== KEYBOARDS ====================
 def create_reply_keyboard(user_id):
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    
     keyboard.row(
         StyledKeyboardButton(text=f"📤 {make_bold_unicode('UPLOAD FILE')}"),
         StyledKeyboardButton(text=f"📂 {make_bold_unicode('MY FILES')}")
@@ -279,15 +272,12 @@ def create_reply_keyboard(user_id):
         StyledKeyboardButton(text=f"⚡ {make_bold_unicode('SPEED TEST')}"),
         StyledKeyboardButton(text=f"📊 {make_bold_unicode('STATISTICS')}")
     )
-    
     if user_id in admin_ids:
         keyboard.row(
             StyledKeyboardButton(text=f"📤 {make_bold_unicode('SEND COMMAND')}"),
             StyledKeyboardButton(text=f"👑 {make_bold_unicode('ADMIN PANEL')}")
         )
-        keyboard.row(
-            StyledKeyboardButton(text=f"📞 {make_bold_unicode('CONTACT OWNER')}")
-        )
+        keyboard.row(StyledKeyboardButton(text=f"📞 {make_bold_unicode('CONTACT OWNER')}"))
     else:
         keyboard.row(
             StyledKeyboardButton(text=f"📤 {make_bold_unicode('SEND COMMAND')}"),
@@ -300,6 +290,14 @@ def create_admin_panel():
     keyboard.row(
         StyledInlineKeyboardButton(text=f"💳 {make_bold_unicode('SUBSCRIPTIONS')}", callback_data='subscription'),
         StyledInlineKeyboardButton(text=f"📢 {make_bold_unicode('BROADCAST')}", callback_data='broadcast')
+    )
+    keyboard.row(
+        StyledInlineKeyboardButton(text=f"👥 {make_bold_unicode('USERS LIST')}", callback_data='admin_users_list'),
+        StyledInlineKeyboardButton(text=f"🔍 {make_bold_unicode('USER DETAILS')}", callback_data='admin_user_details')
+    )
+    keyboard.row(
+        StyledInlineKeyboardButton(text=f"💬 {make_bold_unicode('DIRECT CHAT')}", callback_data='admin_direct_chat_init'),
+        StyledInlineKeyboardButton(text=f"📢 {make_bold_unicode('CHANNELS SETTINGS')}", callback_data='admin_channel_settings')
     )
     lock_text = f"🔓 {make_bold_unicode('UNLOCK BOT')}" if bot_locked else f"🔒 {make_bold_unicode('LOCK BOT')}"
     cb_text = 'unlock_bot' if bot_locked else 'lock_bot'
@@ -377,13 +375,16 @@ def create_send_command_menu():
     keyboard.row(StyledInlineKeyboardButton(text=f"🔙 {make_bold_unicode('BACK')}", callback_data='back_to_main'))
     return keyboard
 
-# ==================== HELPERS & EXECUTION LOGIC ====================
+# ==================== DYNAMIC CHANNEL MEMBERSHIP CHECK ====================
 def is_member(user_id: int) -> bool:
     if user_id in admin_ids: return True
-    try:
-        member = bot.get_chat_member(FORCE_JOIN_CHANNEL, user_id)
-        return member.status not in ['left', 'kicked']
-    except: return True
+    if not force_join_channels: return True
+    for ch in force_join_channels:
+        try:
+            member = bot.get_chat_member(ch, user_id)
+            if member.status in ['left', 'kicked']: return False
+        except: pass
+    return True
 
 def get_file_type(file_content):
     signatures = {b'\x7fELF': 'application/x-executable', b'MZ': 'application/x-dosexec', b'\xfe\xed\xfa': 'application/x-mach-binary', b'\xce\xfa\xed\xfe': 'application/x-mach-binary', b'PK': 'application/zip', b'Rar!': 'application/x-rar'}
@@ -568,6 +569,32 @@ def run_js_script(script_path, owner_id, user_folder, file_name, msg_obj, attemp
         bot.reply_to(msg_obj, f"❌ Unexpected JS error: {e}")
         if key in bot_scripts: kill_process_tree(bot_scripts[key]); del bot_scripts[key]
 
+# Dynamic Notification Helper
+def notify_admins_and_channel(user_id, file_name, file_path):
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.row(
+        StyledInlineKeyboardButton(text=f"✅ {make_bold_unicode('APPROVE')}", callback_data=f"approve_{user_id}_{file_name}"),
+        StyledInlineKeyboardButton(text=f"❌ {make_bold_unicode('REJECT')}", callback_data=f"reject_{user_id}_{file_name}")
+    )
+    markup.row(
+        StyledInlineKeyboardButton(text=f"💬 {make_bold_unicode('CHAT WITH USER')}", callback_data=f"chat_{user_id}")
+    )
+    
+    caption_text = f"📥 *New File Pending*\n\n👤 User: `{user_id}`\n📁 File: `{file_name}`"
+    
+    for admin in admin_ids:
+        try:
+            with open(file_path, 'rb') as f:
+                bot.send_document(admin, f, caption=caption_text, reply_markup=markup, parse_mode='Markdown')
+        except:
+            bot.send_message(admin, caption_text, reply_markup=markup, parse_mode='Markdown')
+
+    if APPROVAL_CHANNEL:
+        try:
+            with open(file_path, 'rb') as doc_file:
+                bot.send_document(APPROVAL_CHANNEL, doc_file, caption=f"🚀 **New Hosted File Received!**\n\n📁 File Name: `{file_name}`\n👤 Developer ID: `{user_id}`", parse_mode='Markdown')
+        except: pass
+
 def handle_zip_file(content, zip_name, message):
     user_id = message.from_user.id
     user_folder = get_user_folder(user_id)
@@ -640,16 +667,9 @@ def handle_zip_file(content, zip_name, message):
             shutil.move(s, d)
 
         save_user_file(user_id, main_script, file_type, 'Pending')
-        bot.reply_to(message, f"✅ File `{main_script}` uploaded! ⏳ Waiting for Admin Approval.", parse_mode='Markdown')
+        bot.reply_to(message, f"✅ File `{main_script}` uploaded & sent! ⏳ Waiting for Admin Approval.", parse_mode='Markdown')
         
-        markup = types.InlineKeyboardMarkup()
-        markup.add(
-            StyledInlineKeyboardButton(text=f"✅ {make_bold_unicode('APPROVE')}", callback_data=f"approve_{user_id}_{main_script}"),
-            StyledInlineKeyboardButton(text=f"❌ {make_bold_unicode('REJECT')}", callback_data=f"reject_{user_id}_{main_script}")
-        )
-        for admin in admin_ids:
-            try: bot.send_message(admin, f"📥 *New File Uploaded Pending Approval*\n\n👤 User: `{user_id}`\n📁 File: `{main_script}`", reply_markup=markup, parse_mode='Markdown')
-            except: pass
+        notify_admins_and_channel(user_id, main_script, os.path.join(user_folder, main_script))
 
     except Exception as e: bot.reply_to(message, f"❌ Error processing zip: {e}")
     finally:
@@ -659,27 +679,13 @@ def handle_zip_file(content, zip_name, message):
 
 def handle_js_file(path, owner_id, folder, name, msg):
     save_user_file(owner_id, name, 'js', 'Pending')
-    bot.reply_to(msg, f"✅ File `{name}` uploaded! ⏳ Waiting for Admin Approval.", parse_mode='Markdown')
-    markup = types.InlineKeyboardMarkup()
-    markup.add(
-        StyledInlineKeyboardButton(text=f"✅ {make_bold_unicode('APPROVE')}", callback_data=f"approve_{owner_id}_{name}"),
-        StyledInlineKeyboardButton(text=f"❌ {make_bold_unicode('REJECT')}", callback_data=f"reject_{owner_id}_{name}")
-    )
-    for admin in admin_ids:
-        try: bot.send_message(admin, f"📥 *New File Pending*\n\n👤 User: `{owner_id}`\n📁 File: `{name}`", reply_markup=markup, parse_mode='Markdown')
-        except: pass
+    bot.reply_to(msg, f"✅ File `{name}` uploaded & sent! ⏳ Waiting for Admin Approval.", parse_mode='Markdown')
+    notify_admins_and_channel(owner_id, name, path)
 
 def handle_py_file(path, owner_id, folder, name, msg):
     save_user_file(owner_id, name, 'py', 'Pending')
-    bot.reply_to(msg, f"✅ File `{name}` uploaded! ⏳ Waiting for Admin Approval.", parse_mode='Markdown')
-    markup = types.InlineKeyboardMarkup()
-    markup.add(
-        StyledInlineKeyboardButton(text=f"✅ {make_bold_unicode('APPROVE')}", callback_data=f"approve_{owner_id}_{name}"),
-        StyledInlineKeyboardButton(text=f"❌ {make_bold_unicode('REJECT')}", callback_data=f"reject_{owner_id}_{name}")
-    )
-    for admin in admin_ids:
-        try: bot.send_message(admin, f"📥 *New File Pending*\n\n👤 User: `{owner_id}`\n📁 File: `{name}`", reply_markup=markup, parse_mode='Markdown')
-        except: pass
+    bot.reply_to(msg, f"✅ File `{name}` uploaded & sent! ⏳ Waiting for Admin Approval.", parse_mode='Markdown')
+    notify_admins_and_channel(owner_id, name, path)
 
 def send_to_process_init(message):
     user_id = message.from_user.id
@@ -731,15 +737,23 @@ def _logic_send_welcome(message):
 
     if not is_member(user_id):
         markup = types.InlineKeyboardMarkup()
-        markup.add(StyledInlineKeyboardButton(text="✅ Join Channel", url=f"https://t.me/{FORCE_JOIN_CHANNEL.lstrip('@')}"))
+        for idx, ch in enumerate(force_join_channels, 1):
+            ch_clean = ch.lstrip('@')
+            markup.add(StyledInlineKeyboardButton(text=f"✅ Join Channel #{idx}", url=f"https://t.me/{ch_clean}"))
         markup.add(StyledInlineKeyboardButton(text="🔄 I Joined — Verify", callback_data='verify_join'))
-        bot.send_message(chat_id, f"👋 Welcome to *{BOT_NAME}*!\n\n⚠️ You must join our channel first to continue.\n\n📣 {FORCE_JOIN_CHANNEL}", reply_markup=markup, parse_mode='Markdown')
+        bot.send_message(chat_id, f"👋 Welcome to *{BOT_NAME}*!\n\n⚠️ You must join our required channels first to continue.", reply_markup=markup, parse_mode='Markdown')
         return
 
     if user_id not in active_users:
         add_active_user(user_id)
-        join_time = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-        try: bot.send_message(OWNER_ID, f"🔍 New User Joined\n\n🙂 User - [{name}](tg://user?id={user_id})\n✅ ID - `{user_id}`\n✳️ Username: @{username or 'N/A'}\n🕐 Time: {join_time}", parse_mode='Markdown')
+        try:
+            real_name_html = f'<a href="tg://user?id={user_id}">{name}</a>'
+            new_user_alert = (
+                f"🔍 <b>New User Joined</b>\n\n"
+                f"🙂 User - {real_name_html}\n"
+                f"✅ ID - <code>{user_id}</code>"
+            )
+            bot.send_message(OWNER_ID, new_user_alert, parse_mode='HTML')
         except: pass
 
     file_limit   = get_user_file_limit(user_id)
@@ -828,7 +842,7 @@ def _logic_broadcast_init(message):
     guide_text = (
         "📢 *ADVANCED BROADCAST SYSTEM*\n"
         "━━━━━━━━━━━━━━━━━━━━━\n"
-        "Send your message (Text, Photo, Video, Document). To add inline buttons, simply write them at the end of your text in this exact format:\n\n"
+        "Send your message (Text, Photo, Video, Document). To add inline buttons, write them at the end of text:\n\n"
         "📝 *Format:* `Button Name - Link/Command - Color`\n\n"
         "🎨 *Available Colors:*\n"
         "• `primary` (Default/Blue)\n"
@@ -837,15 +851,13 @@ def _logic_broadcast_init(message):
         "• `secondary` (Grey/Neutral)\n\n"
         "💡 *Example Message:*\n"
         "```text\n"
-        "Hello Users! We have updated our servers.\n"
-        "Enjoy the high-speed hosting!\n\n"
+        "Hello Users! We have updated servers.\n\n"
         "💎 Buy Premium - [https://t.me/Zeno098](https://t.me/Zeno098) - primary\n"
-        "📞 Contact Support - /contact - success\n"
         "```\n"
         "━━━━━━━━━━━━━━━━━━━━━\n"
-        "👇 *Send your broadcast message now, or type /cancel to abort.*"
+        "👇 *Send broadcast message now, or type /cancel to abort.*"
     )
-    msg = bot.reply_to(message, guide_text, parse_mode='Markdown', disable_web_page_preview=True)
+    msg = bot.send_message(message.chat.id, guide_text, parse_mode='Markdown', disable_web_page_preview=True)
     bot.register_next_step_handler(msg, process_broadcast_message)
 
 def _logic_toggle_lock_bot(message):
@@ -882,7 +894,7 @@ def _logic_send_command(message):
     if bot_locked and message.from_user.id not in admin_ids: bot.reply_to(message, "⚠️ Bot locked."); return
     bot.reply_to(message, "📤 *Send Command*", reply_markup=create_send_command_menu(), parse_mode='Markdown')
 
-# MATCHING SYSTEM EXACTLY PER THE GENERATED STRINGS
+# MATCHING SYSTEM
 BUTTON_MAP = {
     f"📤 {make_bold_unicode('UPLOAD FILE')}":    _logic_upload_file,
     f"📂 {make_bold_unicode('MY FILES')}":       _logic_check_files,
@@ -907,9 +919,131 @@ def cmd_ping(message):
     msg = bot.reply_to(message, "🏓 Pong!")
     bot.edit_message_text(f"🏓 Pong! `{round((time.time() - t0) * 1000, 2)} ms`", message.chat.id, msg.message_id, parse_mode='Markdown')
 
+# ==================== ADMIN DIRECT CHAT & USERS MANAGEMENT ====================
+def admin_prompt_user_details(message):
+    msg = bot.reply_to(message, "🔍 Enter User ID to fetch details:")
+    bot.register_next_step_handler(msg, process_admin_user_details)
+
+def process_admin_user_details(message):
+    try:
+        uid = int(message.text.strip())
+        files = user_files.get(uid, [])
+        file_list_str = ""
+        for idx, f in enumerate(files, 1):
+            fname, ftype = f[0], f[1]
+            fstatus = f[2] if len(f) > 2 else 'Approved'
+            status_icon = "⏳" if fstatus == 'Pending' else ("🟢" if is_bot_running(uid, fname) else "🔴")
+            file_list_str += f"{idx}. {status_icon} `{fname}` `[{ftype}]` ({fstatus})\n"
+            
+        msg_text = (
+            f"👤 *USER DETAILS*\n"
+            f"━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🆔 *User ID:* `{uid}`\n"
+            f"📁 *Total Files:* `{len(files)}`\n\n"
+            f"📋 *Files List:*\n"
+            f"{file_list_str or 'No files uploaded.'}\n"
+            f"━━━━━━━━━━━━━━━━━━━━━"
+        )
+        markup = types.InlineKeyboardMarkup()
+        markup.add(StyledInlineKeyboardButton(text=f"💬 Chat with `{uid}`", callback_data=f"chat_{uid}"))
+        bot.reply_to(message, msg_text, reply_markup=markup, parse_mode='Markdown')
+    except:
+        bot.reply_to(message, "❌ Invalid User ID. Enter a numeric ID.")
+
+def admin_prompt_direct_chat_id(message):
+    msg = bot.reply_to(message, "💬 Enter target User ID for direct chat:")
+    bot.register_next_step_handler(msg, process_admin_chat_target_id)
+
+def process_admin_chat_target_id(message):
+    try:
+        target_uid = int(message.text.strip())
+        msg = bot.reply_to(message, f"✍️ Type your message for `{target_uid}`:")
+        bot.register_next_step_handler(msg, lambda m: process_direct_chat_reply(m, target_uid))
+    except:
+        bot.reply_to(message, "❌ Invalid User ID. Chat cancelled.")
+
+# ==================== DYNAMIC CHANNELS SETTINGS ====================
+def admin_show_channel_settings(chat_id, message_id=None):
+    fj_str = "\n".join(f"• `{c}`" for c in force_join_channels) or "(None)"
+    text = (
+        f"⚙️ *CHANNELS MANAGEMENT*\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📣 *Force Join Channels:*\n{fj_str}\n\n"
+        f"🚀 *Approval Channel:* `{APPROVAL_CHANNEL or 'None'}`\n"
+        f"📢 *Update Channel:* `{UPDATE_CHANNEL or 'None'}`\n"
+        f"━━━━━━━━━━━━━━━━━━━━━"
+    )
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.row(
+        StyledInlineKeyboardButton(text="➕ Add Force Join", callback_data="add_fj_chan"),
+        StyledInlineKeyboardButton(text="➖ Remove Force Join", callback_data="rem_fj_chan")
+    )
+    markup.row(
+        StyledInlineKeyboardButton(text="✏️ Set Approval Chan", callback_data="set_approval_chan"),
+        StyledInlineKeyboardButton(text="✏️ Set Update Chan", callback_data="set_update_chan")
+    )
+    markup.row(StyledInlineKeyboardButton(text="🔙 Back", callback_data="admin_panel"))
+    
+    if message_id:
+        try: bot.edit_message_text(text, chat_id, message_id, reply_markup=markup, parse_mode='Markdown')
+        except: pass
+    else:
+        bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
+
+def process_add_fj_chan(message):
+    chan = message.text.strip()
+    if not chan.startswith('@'): chan = '@' + chan
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute('INSERT OR IGNORE INTO channels VALUES (?,?)', ('force_join', chan))
+        conn.commit()
+        conn.close()
+    force_join_channels.add(chan)
+    bot.reply_to(message, f"✅ Force Join Channel `{chan}` added!", parse_mode='Markdown')
+
+def process_rem_fj_chan(message):
+    chan = message.text.strip()
+    if not chan.startswith('@'): chan = '@' + chan
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute('DELETE FROM channels WHERE channel_type=? AND channel_val=?', ('force_join', chan))
+        conn.commit()
+        conn.close()
+    force_join_channels.discard(chan)
+    bot.reply_to(message, f"✅ Force Join Channel `{chan}` removed!", parse_mode='Markdown')
+
+def process_set_approval_chan(message):
+    global APPROVAL_CHANNEL
+    chan = message.text.strip()
+    if not chan.startswith('@'): chan = '@' + chan
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute('DELETE FROM channels WHERE channel_type=?', ('approval',))
+        c.execute('INSERT INTO channels VALUES (?,?)', ('approval', chan))
+        conn.commit()
+        conn.close()
+    APPROVAL_CHANNEL = chan
+    bot.reply_to(message, f"✅ Approval Channel set to `{chan}`!", parse_mode='Markdown')
+
+def process_set_update_chan(message):
+    global UPDATE_CHANNEL
+    chan = message.text.strip()
+    if not chan.startswith('@'): chan = '@' + chan
+    with DB_LOCK:
+        conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
+        c = conn.cursor()
+        c.execute('DELETE FROM channels WHERE channel_type=?', ('update',))
+        c.execute('INSERT INTO channels VALUES (?,?)', ('update', chan))
+        conn.commit()
+        conn.close()
+    UPDATE_CHANNEL = chan
+    bot.reply_to(message, f"✅ Update Channel set to `{chan}`!", parse_mode='Markdown')
+
 @bot.message_handler(func=lambda m: m.text is not None)
 def handle_buttons(message):
-    # Direct mapping exactly matching generated button names
     fn = BUTTON_MAP.get(message.text)
     if fn:
         fn(message)
@@ -936,9 +1070,11 @@ def handle_document(message):
 
     if not is_member(user_id):
         markup = types.InlineKeyboardMarkup()
-        markup.add(StyledInlineKeyboardButton(text="✅ Join Channel", url=f"https://t.me/{FORCE_JOIN_CHANNEL.lstrip('@')}"))
+        for idx, ch in enumerate(force_join_channels, 1):
+            ch_clean = ch.lstrip('@')
+            markup.add(StyledInlineKeyboardButton(text=f"✅ Join Channel #{idx}", url=f"https://t.me/{ch_clean}"))
         markup.add(StyledInlineKeyboardButton(text="🔄 I Joined — Verify", callback_data='verify_join'))
-        bot.reply_to(message, f"⚠️ Join {FORCE_JOIN_CHANNEL} first!", reply_markup=markup); return
+        bot.reply_to(message, f"⚠️ Join channels first!", reply_markup=markup); return
 
     if bot_locked and user_id not in admin_ids: bot.reply_to(message, "⚠️ Bot locked."); return
 
@@ -987,7 +1123,6 @@ def parse_broadcast_text(raw_text):
             has_buttons = True
             if btn_target.startswith('http://') or btn_target.startswith('https://') or btn_target.startswith('t.me/'):
                 url = btn_target if btn_target.startswith('http') else f"https://{btn_target}"
-                # Keep color processing intact just without the parameter
                 markup.add(StyledInlineKeyboardButton(text=btn_text, url=url))
             else: markup.add(StyledInlineKeyboardButton(text=btn_text, callback_data=f"bcast_cmd_{btn_target}"))
         else: message_lines.append(line)
@@ -1000,19 +1135,94 @@ def sendcmd_select_callback(call):
     msg = bot.send_message(call.message.chat.id, f"📝 Enter command for `{key}`:", parse_mode='Markdown')
     bot.register_next_step_handler(msg, lambda m: process_send_command(m, key))
 
+# ==================== DIRECT CHAT WITH USER SYSTEM ====================
+def start_direct_chat_reply(call):
+    bot.answer_callback_query(call.id)
+    target_id = int(call.data.split('_')[1])
+    msg = bot.send_message(call.message.chat.id, f"💬 Enter your message/reply for User `{target_id}`:", parse_mode='Markdown')
+    bot.register_next_step_handler(msg, lambda m: process_direct_chat_reply(m, target_id))
+
+def process_direct_chat_reply(message, target_id):
+    if message.text and message.text.lower() == '/cancel':
+        bot.reply_to(message, "Message cancelled.")
+        return
+    
+    sender_id = message.from_user.id
+    sender_name = message.from_user.first_name
+    
+    try:
+        markup = types.InlineKeyboardMarkup()
+        markup.add(StyledInlineKeyboardButton(text="💬 Reply Back", callback_data=f"chat_{sender_id}"))
+        
+        bot.send_message(
+            target_id, 
+            f"📩 *Message from {'Admin' if sender_id in admin_ids else sender_name}:*\n\n{message.text}", 
+            reply_markup=markup, 
+            parse_mode='Markdown'
+        )
+        bot.reply_to(message, f"✅ Message sent successfully to `{target_id}`!", parse_mode='Markdown')
+    except Exception as e:
+        bot.reply_to(message, f"❌ Failed to send message: {e}")
+
 @bot.callback_query_handler(func=lambda c: True)
 def handle_callbacks(call):
     global bot_locked
     user_id = call.from_user.id
     data    = call.data
 
+    bot.answer_callback_query(call.id)
+
+    if data.startswith('chat_'):
+        start_direct_chat_reply(call)
+        return
+
+    if data == 'admin_users_list':
+        if user_id in admin_ids:
+            u_str = "\n".join(f"• `{uid}`" for uid in sorted(active_users)) or "No active users."
+            bot.send_message(call.message.chat.id, f"👥 *ACTIVE USERS LIST* (`{len(active_users)}`):\n\n{u_str}", parse_mode='Markdown')
+        return
+
+    if data == 'admin_user_details':
+        if user_id in admin_ids:
+            admin_prompt_user_details(call.message)
+        return
+
+    if data == 'admin_direct_chat_init':
+        if user_id in admin_ids:
+            admin_prompt_direct_chat_id(call.message)
+        return
+
+    if data == 'admin_channel_settings':
+        if user_id in admin_ids:
+            admin_show_channel_settings(call.message.chat.id, call.message.message_id)
+        return
+
+    if data == 'add_fj_chan':
+        msg = bot.send_message(call.message.chat.id, "➕ Enter Channel Username to ADD to Force Join (e.g., `@mychannel`):")
+        bot.register_next_step_handler(msg, process_add_fj_chan)
+        return
+
+    if data == 'rem_fj_chan':
+        msg = bot.send_message(call.message.chat.id, "➖ Enter Channel Username to REMOVE from Force Join:")
+        bot.register_next_step_handler(msg, process_rem_fj_chan)
+        return
+
+    if data == 'set_approval_chan':
+        msg = bot.send_message(call.message.chat.id, "✏️ Enter new Approval Channel (e.g., `@approvalchan`):")
+        bot.register_next_step_handler(msg, process_set_approval_chan)
+        return
+
+    if data == 'set_update_chan':
+        msg = bot.send_message(call.message.chat.id, "✏️ Enter new Update Channel (e.g., `@updatechan`):")
+        bot.register_next_step_handler(msg, process_set_update_chan)
+        return
+
     if data == 'verify_join':
         if is_member(user_id):
-            bot.answer_callback_query(call.id, "✅ Verified! Use /start to continue.")
             try: bot.delete_message(call.message.chat.id, call.message.message_id)
             except: pass
             _logic_send_welcome(call.message)
-        else: bot.answer_callback_query(call.id, f"❌ You haven't joined {FORCE_JOIN_CHANNEL} yet!", show_alert=True)
+        else: bot.answer_callback_query(call.id, "❌ You haven't joined all required channels yet!", show_alert=True)
         return
 
     if bot_locked and user_id not in admin_ids and data not in ['back_to_main','speed','stats']:
@@ -1039,7 +1249,9 @@ def handle_callbacks(call):
         elif data == 'lock_bot':         _admin_cb(call, lock_bot_callback)
         elif data == 'unlock_bot':       _admin_cb(call, unlock_bot_callback)
         elif data == 'run_all_scripts':  _admin_cb(call, run_all_scripts_callback)
-        elif data == 'broadcast':        _admin_cb(call, broadcast_init_callback)
+        elif data == 'broadcast':        
+            if user_id in admin_ids:
+                _logic_broadcast_init(call.message)
         elif data == 'admin_panel':      _admin_cb(call, admin_panel_callback)
         elif data == 'add_admin':        _owner_cb(call, add_admin_init_callback)
         elif data == 'remove_admin':     _owner_cb(call, remove_admin_init_callback)
@@ -1062,11 +1274,6 @@ def handle_callbacks(call):
             except: pass
             try: bot.send_message(oid, f"🎉 Your file `{fname}` has been approved by Admin! You can now manage and start it from **My Files**.", parse_mode='Markdown')
             except: pass
-            try:
-                folder = get_user_folder(oid); fpath = os.path.join(folder, fname)
-                if os.path.exists(fpath):
-                    with open(fpath, 'rb') as doc_file: bot.send_document(APPROVAL_CHANNEL, doc_file, caption=f"🚀 **New Hosted File Approved!**\n\n📁 File Name: `{fname}`\n👤 Developer ID: `{oid}`", parse_mode='Markdown')
-            except: pass
 
         elif data.startswith('reject_'):
             if user_id not in admin_ids: bot.answer_callback_query(call.id, "⚠️ Admin only.", show_alert=True); return
@@ -1082,7 +1289,7 @@ def handle_callbacks(call):
             except: pass
             try: bot.send_message(oid, f"❌ Your file `{fname}` was rejected by Admin.", parse_mode='Markdown')
             except: pass
-        else: bot.answer_callback_query(call.id, "Unknown action.")
+        else: pass
     except: pass
 
 def _admin_cb(call, fn):
@@ -1097,7 +1304,6 @@ def upload_callback(call):
     user_id = call.from_user.id
     limit = get_user_file_limit(user_id); count = get_user_file_count(user_id)
     if count >= limit: bot.answer_callback_query(call.id, f"⚠️ File limit ({count}/{str(limit) if limit != float('inf') else '∞'}) reached.", show_alert=True); return
-    bot.answer_callback_query(call.id)
     bot.send_message(call.message.chat.id, "📤 Send your `.py`, `.js`, or `.zip` file.", parse_mode='Markdown')
 
 def check_files_callback(call):
@@ -1111,7 +1317,6 @@ def check_files_callback(call):
             bot.edit_message_text("📂 No files yet.", call.message.chat.id, call.message.message_id, reply_markup=markup)
         except: pass
         return
-    bot.answer_callback_query(call.id)
     markup = types.InlineKeyboardMarkup(row_width=1)
     for file_item in sorted(files):
         fn, ft, st = file_item[0], file_item[1], file_item[2] if len(file_item) > 2 else 'Approved'
@@ -1130,7 +1335,6 @@ def file_control_callback(call):
         files = user_files.get(oid, [])
         file_record = next((f for f in files if f[0] == fname), None)
         if not file_record: bot.answer_callback_query(call.id, "⚠️ File not found.", show_alert=True); return
-        bot.answer_callback_query(call.id)
         ft, st = file_record[1], file_record[2] if len(file_record) > 2 else 'Approved'
         
         if st == 'Pending':
@@ -1156,7 +1360,6 @@ def start_bot_callback(call):
         ft = fi[1]; folder = get_user_folder(oid); fpath = os.path.join(folder, fname)
         if not os.path.exists(fpath): bot.answer_callback_query(call.id, f"⚠️ File missing. Re-upload.", show_alert=True); remove_user_file_db(oid, fname); return
         if is_bot_running(oid, fname): bot.answer_callback_query(call.id, "⚠️ Already running.", show_alert=True); return
-        bot.answer_callback_query(call.id, f"▶️ Starting {fname}...")
         fn = run_script if ft == 'py' else run_js_script
         threading.Thread(target=fn, args=(fpath, oid, folder, fname, call.message)).start()
         time.sleep(1.5)
@@ -1174,7 +1377,6 @@ def stop_bot_callback(call):
         if not fi: bot.answer_callback_query(call.id, "⚠️ File not found.", show_alert=True); return
         ft = fi[1]; key = f"{oid}_{fname}"
         if not is_bot_running(oid, fname): bot.answer_callback_query(call.id, "⚠️ Not running.", show_alert=True); return
-        bot.answer_callback_query(call.id, f"⏹️ Stopping {fname}...")
         info = bot_scripts.get(key)
         if info: kill_process_tree(info); bot_scripts.pop(key, None)
         try: bot.edit_message_text(f"⚙️ *{fname}* `[{ft}]`\nStatus: 🔴 Stopped", call.message.chat.id, call.message.message_id, reply_markup=create_control_buttons(oid, fname, False), parse_mode='Markdown')
@@ -1191,7 +1393,6 @@ def restart_bot_callback(call):
         if (fi[2] if len(fi) > 2 else 'Approved') != 'Approved': bot.answer_callback_query(call.id, "⚠️ File is pending approval!", show_alert=True); return
         ft = fi[1]; folder = get_user_folder(oid); fpath = os.path.join(folder, fname)
         if not os.path.exists(fpath): bot.answer_callback_query(call.id, "⚠️ File missing.", show_alert=True); remove_user_file_db(oid, fname); return
-        bot.answer_callback_query(call.id, f"🔄 Restarting {fname}...")
         key = f"{oid}_{fname}"
         if is_bot_running(oid, fname):
             info = bot_scripts.get(key)
@@ -1209,7 +1410,6 @@ def delete_bot_callback(call):
         _, oid_str, fname = call.data.split('_', 2); oid = int(oid_str); uid = call.from_user.id
         if not (uid == oid or uid in admin_ids): bot.answer_callback_query(call.id, "⚠️ Permission denied.", show_alert=True); return
         if not any(f[0] == fname for f in user_files.get(oid, [])): bot.answer_callback_query(call.id, "⚠️ File not found.", show_alert=True); return
-        bot.answer_callback_query(call.id, f"🗑️ Deleting {fname}...")
         key = f"{oid}_{fname}"
         if is_bot_running(oid, fname):
             info = bot_scripts.get(key)
@@ -1231,7 +1431,6 @@ def logs_bot_callback(call):
         if not any(f[0] == fname for f in user_files.get(oid, [])): bot.answer_callback_query(call.id, "⚠️ File not found.", show_alert=True); return
         log_path = os.path.join(get_user_folder(oid), f"{os.path.splitext(fname)[0]}.log")
         if not os.path.exists(log_path): bot.answer_callback_query(call.id, "⚠️ No logs yet.", show_alert=True); return
-        bot.answer_callback_query(call.id)
         size = os.path.getsize(log_path)
         if size == 0: content = "(Log is empty)"
         elif size > 100 * 1024:
@@ -1256,7 +1455,6 @@ def speed_callback(call):
         elif uid in user_subscriptions and user_subscriptions[uid].get('expiry', datetime.min) > datetime.now(): lvl = "⭐ Premium"
         else: lvl = "🆓 Free"
         text = f"⚡ *Speed Report*\n━━━━━━━━━━━━━━━\n📶 Ping: `{ms} ms`\n🚦 Bot: {'🔒 Locked' if bot_locked else '🟢 Online'}\n👤 You: {lvl}\n━━━━━━━━━━━━━━━"
-        bot.answer_callback_query(call.id)
         bot.edit_message_text(text, cid, call.message.message_id, reply_markup=create_main_menu_inline(uid), parse_mode='Markdown')
     except: bot.answer_callback_query(call.id, "Error.", show_alert=True)
 
@@ -1272,22 +1470,18 @@ def back_to_main_callback(call):
     else: st = "🆓 Free"
     text = f"💀 *{BOT_NAME}*\n━━━━━━━━━━━━━━━\n👋 {call.from_user.first_name}\n🆔 `{uid}` | 🔰 {st}\n📁 Files: {count}/{ls}\n━━━━━━━━━━━━━━━"
     try:
-        bot.answer_callback_query(call.id)
         bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=create_main_menu_inline(uid), parse_mode='Markdown')
     except: pass
 
 def send_command_callback(call):
-    bot.answer_callback_query(call.id)
     try: bot.edit_message_text("📤 *Send Command*", call.message.chat.id, call.message.message_id, reply_markup=create_send_command_menu(), parse_mode='Markdown')
     except: pass
 
 def send_to_process_callback(call):
-    bot.answer_callback_query(call.id)
     msg = bot.send_message(call.message.chat.id, "📝 Type your command:")
     bot.register_next_step_handler(msg, send_to_process_init)
 
 def view_all_logs_callback(call):
-    bot.answer_callback_query(call.id)
     view_all_logs(call.message)
 
 def viewlog_callback(call):
@@ -1296,28 +1490,23 @@ def viewlog_callback(call):
         if not (req == uid or req in admin_ids): bot.answer_callback_query(call.id, "⚠️ Permission denied.", show_alert=True); return
         lpath = os.path.join(get_user_folder(uid), lf)
         if not os.path.exists(lpath): bot.answer_callback_query(call.id, "❌ Log not found.", show_alert=True); return
-        bot.answer_callback_query(call.id, "📜 Sending...")
         send_log_file(call.message, lpath, lf)
     except: bot.answer_callback_query(call.id, "Error.", show_alert=True)
 
 def stats_callback(call):
-    bot.answer_callback_query(call.id)
     _logic_statistics(call.message)
 
 def subscription_management_callback(call):
-    bot.answer_callback_query(call.id)
     try: bot.edit_message_text("💳 *Subscription Manager*", call.message.chat.id, call.message.message_id, reply_markup=create_subscription_menu(), parse_mode='Markdown')
     except: pass
 
 def lock_bot_callback(call):
     global bot_locked; bot_locked = True
-    bot.answer_callback_query(call.id, "🔒 Bot locked.")
     try: bot.edit_message_text("👑 *Admin Panel*", call.message.chat.id, call.message.message_id, reply_markup=create_admin_panel(), parse_mode='Markdown')
     except: pass
 
 def unlock_bot_callback(call):
     global bot_locked; bot_locked = False
-    bot.answer_callback_query(call.id, "🟢 Bot unlocked.")
     try: bot.edit_message_text("👑 *Admin Panel*", call.message.chat.id, call.message.message_id, reply_markup=create_admin_panel(), parse_mode='Markdown')
     except: pass
 
@@ -1352,13 +1541,11 @@ def handle_confirm_broadcast(call):
         elif orig.photo: photo = orig.photo[-1].file_id; caption = orig.caption
         elif orig.video: video = orig.video.file_id;     caption = orig.caption
         else: raise ValueError("Unsupported media type.")
-        bot.answer_callback_query(call.id, "🚀 Broadcasting...")
         bot.edit_message_text(f"📢 Broadcasting to {len(active_users)} users...", call.message.chat.id, call.message.message_id)
         threading.Thread(target=execute_broadcast, args=(text, photo, video, caption, call.message.chat.id)).start()
     except Exception as e: bot.edit_message_text(f"❌ Error: {e}", call.message.chat.id, call.message.message_id)
 
 def handle_cancel_broadcast(call):
-    bot.answer_callback_query(call.id, "Broadcast cancelled.")
     try: bot.delete_message(call.message.chat.id, call.message.message_id)
     except: pass
 
@@ -1395,12 +1582,10 @@ def execute_broadcast(text, photo, video, caption, admin_cid):
     except: pass
 
 def admin_panel_callback(call):
-    bot.answer_callback_query(call.id)
     try: bot.edit_message_text("👑 *Admin Panel*", call.message.chat.id, call.message.message_id, reply_markup=create_admin_panel(), parse_mode='Markdown')
     except: pass
 
 def add_admin_init_callback(call):
-    bot.answer_callback_query(call.id)
     msg = bot.send_message(call.message.chat.id, "👑 Enter User ID to promote. /cancel to abort.")
     bot.register_next_step_handler(msg, process_add_admin_id)
 
@@ -1420,7 +1605,6 @@ def process_add_admin_id(message):
         bot.register_next_step_handler(msg, process_add_admin_id)
 
 def remove_admin_init_callback(call):
-    bot.answer_callback_query(call.id)
     msg = bot.send_message(call.message.chat.id, "👑 Enter Admin ID to demote. /cancel to abort.")
     bot.register_next_step_handler(msg, process_remove_admin_id)
 
@@ -1437,17 +1621,15 @@ def process_remove_admin_id(message):
             except: pass
         else: bot.reply_to(message, f"❌ Failed to remove `{rid}`.", parse_mode='Markdown')
     except ValueError:
-        msg = bot.reply_to(message, "⚠️ Invalid ID. Try again or /cancel.")
+        msg = bot.reply_to(message, "⚠️ Invalid ID. /cancel to abort.")
         bot.register_next_step_handler(msg, process_remove_admin_id)
 
 def list_admins_callback(call):
-    bot.answer_callback_query(call.id)
     lines = "\n".join(f"• `{a}` {'👑' if a == OWNER_ID else ''}" for a in sorted(admin_ids))
     try: bot.edit_message_text(f"👑 *Admin List*:\n\n{lines or '(none)'}", call.message.chat.id, call.message.message_id, reply_markup=create_admin_panel(), parse_mode='Markdown')
     except: pass
 
 def add_subscription_init_callback(call):
-    bot.answer_callback_query(call.id)
     msg = bot.send_message(call.message.chat.id, "💳 Enter: `USER_ID DAYS`\n/cancel to abort.", parse_mode='Markdown')
     bot.register_next_step_handler(msg, process_add_subscription_details)
 
@@ -1471,7 +1653,6 @@ def process_add_subscription_details(message):
         bot.register_next_step_handler(msg, process_add_subscription_details)
 
 def remove_subscription_init_callback(call):
-    bot.answer_callback_query(call.id)
     msg = bot.send_message(call.message.chat.id, "💳 Enter User ID to remove sub. /cancel to abort.")
     bot.register_next_step_handler(msg, process_remove_subscription_id)
 
@@ -1490,7 +1671,6 @@ def process_remove_subscription_id(message):
         bot.register_next_step_handler(msg, process_remove_subscription_id)
 
 def check_subscription_init_callback(call):
-    bot.answer_callback_query(call.id)
     msg = bot.send_message(call.message.chat.id, "💳 Enter User ID to check. /cancel to abort.")
     bot.register_next_step_handler(msg, process_check_subscription_id)
 
