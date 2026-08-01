@@ -98,7 +98,7 @@ BOT_NAME = f"{make_bold_unicode('Zeno Hosting')} 💗"
 CREDIT = "𐌆ᴇɴᴏ"
 
 WELCOME_IMAGE_URL = 'https://pin.it/49cqGezjz'
-UPLOAD_IMAGE_URL = 'https://pin.it/49cqGezjz' 
+UPLOAD_IMAGE_URL = 'https://pin.it/7xjBM8IN3' 
 SPEED_IMAGE_URL  = 'https://pin.it/49cqGezjz'
 STATS_IMAGE_URL  = 'https://pin.it/49cqGezjz'
 
