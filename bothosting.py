@@ -22,8 +22,6 @@ import hashlib
 import io
 
 # ==================== ADVANCED PREMIUM TEXT STYLIZER HELPER ====================
-# First letter: Mathematical Bold (𝐀-𝐙 / 𝐚-𝐳)
-# Remaining letters: Small Caps (ᴀ-ᴢ)
 FIRST_UPPER = "𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙"
 SMALL_CAPS  = "ᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ"
 
@@ -37,7 +35,6 @@ def make_bold_unicode(text):
         new_word = []
         for i, char in enumerate(word):
             codepoint = ord(char)
-            # First character -> Bold Unicode
             if i == 0:
                 if 65 <= codepoint <= 90:  # A-Z
                     new_word.append(chr(codepoint - 65 + 0x1D400))
@@ -47,7 +44,6 @@ def make_bold_unicode(text):
                     new_word.append(chr(codepoint - 48 + 0x1D7CE))
                 else:
                     new_word.append(char)
-            # Remaining characters -> Small Caps Unicode
             else:
                 if 65 <= codepoint <= 90:  # A-Z
                     new_word.append(SMALL_CAPS[codepoint - 65])
@@ -93,7 +89,7 @@ TOKEN = '8944656955:AAG0euNjXMO0tTaGoJrA5R6nRJnOoLS5nfs'
 OWNER_ID = 8271186073
 ADMIN_ID  = 8271186073
 YOUR_USERNAME = '@Zeno098'
-WHATSAPP_LINK = 'https://wa.me/919800000000'  # Put your WhatsApp Link here
+WHATSAPP_LINK = 'https://wa.me/919800000000'
 BOT_NAME = f"{make_bold_unicode('Zeno Hosting')} 💗"
 CREDIT = "𐌆ᴇɴᴏ"
 
@@ -121,10 +117,14 @@ SPAM_WINDOW_SECONDS = 20
 MAX_HEAVY_ACTIONS = 10      
 BAN_DURATION_MINUTES = 5    
 
-admin_ids = {ADMIN_ID, OWNER_ID}
+admin_ids = {int(ADMIN_ID), int(OWNER_ID)}
 
 def is_admin(user_id):
-    return user_id == OWNER_ID or user_id in admin_ids
+    try:
+        uid = int(user_id)
+        return uid == OWNER_ID or uid == ADMIN_ID or uid in admin_ids
+    except:
+        return False
 
 def is_user_banned(user_id):
     if is_admin(user_id):
@@ -234,9 +234,9 @@ def load_data():
         c.execute('SELECT user_id FROM active_users')
         active_users.update(uid for (uid,) in c.fetchall())
         c.execute('SELECT user_id FROM admins')
-        admin_ids.update(uid for (uid,) in c.fetchall())
-        admin_ids.add(OWNER_ID)
-        admin_ids.add(ADMIN_ID)
+        admin_ids.update(int(uid) for (uid,) in c.fetchall())
+        admin_ids.add(int(OWNER_ID))
+        admin_ids.add(int(ADMIN_ID))
         
         c.execute('SELECT channel_type, channel_val FROM channels')
         for ctype, cval in c.fetchall():
@@ -363,7 +363,7 @@ def add_admin_db(admin_id):
         try:
             c.execute('INSERT OR IGNORE INTO admins VALUES (?)', (admin_id,))
             conn.commit()
-            admin_ids.add(admin_id)
+            admin_ids.add(int(admin_id))
         except: pass
         finally: conn.close()
 
@@ -377,35 +377,43 @@ def remove_admin_db(admin_id):
             c.execute('DELETE FROM admins WHERE user_id=?', (admin_id,))
             conn.commit()
             removed = c.rowcount > 0
-            if removed: admin_ids.discard(admin_id)
+            if removed: admin_ids.discard(int(admin_id))
         except: pass
         finally: conn.close()
         return removed
 
+# ==================== CANCEL BUTTON HELPER ====================
+def get_cancel_markup(callback_data="cancel_admin_flow"):
+    markup = types.InlineKeyboardMarkup()
+    markup.add(StyledInlineKeyboardButton(text="❌ Cancel", callback_data=callback_data, style="danger"))
+    return markup
+
 # ==================== KEYBOARDS ====================
 def create_reply_keyboard(user_id):
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
+    
+    # Row 1: Upload File
     keyboard.row(StyledKeyboardButton(text=f"📤 {make_bold_unicode('Upload File')}", style="success"))
+    
+    # Row 2: My Files, Send Command
     keyboard.row(
         StyledKeyboardButton(text=f"📂 {make_bold_unicode('My Files')}", style="primary"),
-        StyledKeyboardButton(text=f"⚡ {make_bold_unicode('Speed Test')}", style="primary")
-    )
-    keyboard.row(
-        StyledKeyboardButton(text=f"📊 {make_bold_unicode('Statistics')}", style="success"),
-        StyledKeyboardButton(text=f"🎁 {make_bold_unicode('Refer & Earn')}", style="success")
-    )
-    keyboard.row(
         StyledKeyboardButton(text=f"📊 {make_bold_unicode('Send Command')}", style="primary")
-        )
-    keyboard.row(
-        StyledKeyboardButton(text=f"📖 {make_bold_unicode('How To Use')}", style="success"),
-        StyledKeyboardButton(text=f"📦 {make_bold_unicode('Manual Install')}", style="success")
     )
+    
+    # Row 3: Speed Test, More
+    keyboard.row(
+        StyledKeyboardButton(text=f"⚡ {make_bold_unicode('Speed Test')}", style="primary"),
+        StyledKeyboardButton(text=f"🈴 {make_bold_unicode('More')}", style="primary")
+    )
+    
+    # Row 4: Admin Panel (If Admin)
     if is_admin(user_id):
-        keyboard.row(
-            StyledKeyboardButton(text=f"👑 {make_bold_unicode('Admin Panel')}", style="danger")
-        )
+        keyboard.row(StyledKeyboardButton(text=f"👑 {make_bold_unicode('Admin Panel')}", style="danger"))
+        
+    # Row 5: Contact Admin
     keyboard.row(StyledKeyboardButton(text=f"📞 {make_bold_unicode('Contact Admin (WhatsApp)')}", style="primary"))
+    
     return keyboard
 
 def create_admin_panel():
@@ -947,6 +955,18 @@ def _logic_subscriptions_panel(message):
     if not is_admin(message.from_user.id): bot.reply_to(message, "⚠️ Admin only."); return
     bot.reply_to(message, f"💳 *{make_bold_unicode('Subscription Manager')}*", reply_markup=create_subscription_menu(), parse_mode='Markdown')
 
+def _logic_more_menu(message):
+    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    keyboard.row(
+        StyledInlineKeyboardButton(text=f"📖 {make_bold_unicode('How To Use')}", callback_data='how_to_use', style="primary"),
+        StyledInlineKeyboardButton(text=f"📊 {make_bold_unicode('Statistics')}", callback_data='stats', style="primary")
+    )
+    keyboard.row(
+        StyledInlineKeyboardButton(text=f"🎁 {make_bold_unicode('Refer & Earn')}", callback_data='refer_earn', style="primary"),
+        StyledInlineKeyboardButton(text=f"📦 {make_bold_unicode('Manual Install')}", callback_data='manual_install', style="primary")
+    )
+    bot.reply_to(message, f"🈴 *{make_bold_unicode('More Options')}*", reply_markup=keyboard, parse_mode='Markdown')
+
 def _logic_how_to_use(message):
     guide = (
         f"📖 *{make_bold_unicode('How To Use Zeno Hosting Bot')}*\n"
@@ -971,6 +991,7 @@ def _logic_manual_install(message):
         "• `pip requests`\n"
         "• `npm express`\n\n"
         "✍️ Enter command now or type /cancel:",
+        reply_markup=get_cancel_markup(),
         parse_mode='Markdown'
     )
     bot.register_next_step_handler(msg, process_manual_install)
@@ -1113,7 +1134,7 @@ def _logic_broadcast_init(message):
         "━━━━━━━━━━━━━━━━━━━━━\n"
         "👇 *Send broadcast message now, or type /cancel to abort.*"
     )
-    msg = bot.send_message(message.chat.id, guide_text, parse_mode='Markdown', disable_web_page_preview=True)
+    msg = bot.send_message(message.chat.id, guide_text, reply_markup=get_cancel_markup(), parse_mode='Markdown', disable_web_page_preview=True)
     bot.register_next_step_handler(msg, process_broadcast_message)
 
 def _logic_toggle_lock_bot(message):
@@ -1146,12 +1167,9 @@ def _logic_run_all_scripts(moc):
 BUTTON_MAP = {
     f"📤 {make_bold_unicode('Upload File')}":          _logic_upload_file,
     f"📂 {make_bold_unicode('My Files')}":             _logic_check_files,
+    f"📊 {make_bold_unicode('Send Command')}":         _logic_send_command,
     f"⚡ {make_bold_unicode('Speed Test')}":           _logic_bot_speed,
-    f"📊 {make_bold_unicode('Statistics')}":           _logic_statistics,
-    f"📖 {make_bold_unicode('How To Use')}":           _logic_how_to_use,
-    f"📦 {make_bold_unicode('Manual Install')}":        _logic_manual_install,
-    f"🎁 {make_bold_unicode('Refer & Earn')}":          _logic_refer_earn,
-    f"📤 {make_bold_unicode('Send Command')}":         _logic_send_command,
+    f"🈴 {make_bold_unicode('More')}":                 _logic_more_menu,
     f"👑 {make_bold_unicode('Admin Panel')}":          _logic_admin_panel,
     f"📞 {make_bold_unicode('Contact Admin (WhatsApp)')}": _logic_whatsapp_contact,
 }
@@ -1204,6 +1222,7 @@ def admin_show_fake_stats_panel(chat_id, message_id=None):
 
 def process_set_fake_users(message):
     global fake_users_count
+    if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
     try:
         val = int(message.text.strip())
         fake_users_count = val
@@ -1214,6 +1233,7 @@ def process_set_fake_users(message):
 
 def process_set_fake_scripts(message):
     global fake_scripts_count
+    if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
     try:
         val = int(message.text.strip())
         fake_scripts_count = val
@@ -1224,10 +1244,13 @@ def process_set_fake_scripts(message):
 
 # ==================== ADMIN DIRECT CHAT & USERS MANAGEMENT ====================
 def admin_prompt_user_details(message):
-    msg = bot.reply_to(message, "🔍 Enter User ID to fetch details:")
+    msg = bot.send_message(message.chat.id, "🔍 Enter User ID to fetch details:", reply_markup=get_cancel_markup())
     bot.register_next_step_handler(msg, process_admin_user_details)
 
 def process_admin_user_details(message):
+    if message.text and message.text.lower() == '/cancel':
+        bot.reply_to(message, "Cancelled.")
+        return
     try:
         uid = int(message.text.strip())
         files = user_files.get(uid, [])
@@ -1254,13 +1277,16 @@ def process_admin_user_details(message):
         bot.reply_to(message, "❌ Invalid User ID. Enter a numeric ID.")
 
 def admin_prompt_direct_chat_id(message):
-    msg = bot.reply_to(message, "💬 Enter target User ID for direct chat:")
+    msg = bot.send_message(message.chat.id, "💬 Enter target User ID for direct chat:", reply_markup=get_cancel_markup())
     bot.register_next_step_handler(msg, process_admin_chat_target_id)
 
 def process_admin_chat_target_id(message):
+    if message.text and message.text.lower() == '/cancel':
+        bot.reply_to(message, "Cancelled.")
+        return
     try:
         target_uid = int(message.text.strip())
-        msg = bot.reply_to(message, f"✍️ Send your message/media/sticker for `{target_uid}`:")
+        msg = bot.send_message(message.chat.id, f"✍️ Send your message/media/sticker for `{target_uid}`:", reply_markup=get_cancel_markup(), parse_mode='Markdown')
         bot.register_next_step_handler(msg, lambda m: process_direct_chat_reply(m, target_uid))
     except:
         bot.reply_to(message, "❌ Invalid User ID. Chat cancelled.")
@@ -1294,6 +1320,7 @@ def admin_show_channel_settings(chat_id, message_id=None):
         bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
 
 def process_add_fj_chan(message):
+    if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
     chan = message.text.strip()
     if not chan.startswith('@'): chan = '@' + chan
     with DB_LOCK:
@@ -1306,6 +1333,7 @@ def process_add_fj_chan(message):
     bot.reply_to(message, f"✅ Force Join Channel `{chan}` added!", parse_mode='Markdown')
 
 def process_rem_fj_chan(message):
+    if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
     chan = message.text.strip()
     if not chan.startswith('@'): chan = '@' + chan
     with DB_LOCK:
@@ -1318,6 +1346,7 @@ def process_rem_fj_chan(message):
     bot.reply_to(message, f"✅ Force Join Channel `{chan}` removed!", parse_mode='Markdown')
 
 def process_set_approval_chan(message):
+    if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
     global APPROVAL_CHANNEL
     chan = message.text.strip()
     if not chan.startswith('@'): chan = '@' + chan
@@ -1332,6 +1361,7 @@ def process_set_approval_chan(message):
     bot.reply_to(message, f"✅ Approval Channel set to `{chan}`!", parse_mode='Markdown')
 
 def process_set_update_chan(message):
+    if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
     global UPDATE_CHANNEL
     chan = message.text.strip()
     if not chan.startswith('@'): chan = '@' + chan
@@ -1365,6 +1395,7 @@ def admin_show_limits_panel(chat_id, message_id=None):
 
 def process_set_free_limit(message):
     global FREE_USER_LIMIT
+    if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
     try:
         val = int(message.text.strip())
         FREE_USER_LIMIT = val
@@ -1374,6 +1405,7 @@ def process_set_free_limit(message):
 
 def process_set_sub_limit(message):
     global SUBSCRIBED_USER_LIMIT
+    if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
     try:
         val = int(message.text.strip())
         SUBSCRIBED_USER_LIMIT = val
@@ -1383,6 +1415,7 @@ def process_set_sub_limit(message):
 
 def process_set_refer_reward(message):
     global REFER_REWARD_FILES
+    if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
     try:
         val = int(message.text.strip())
         REFER_REWARD_FILES = val
@@ -1471,7 +1504,7 @@ def sendcmd_select_callback(call):
 def start_direct_chat_reply(call):
     bot.answer_callback_query(call.id)
     target_id = int(call.data.split('_')[1])
-    msg = bot.send_message(call.message.chat.id, f"💬 Send your message, image, or sticker for User `{target_id}`:", parse_mode='Markdown')
+    msg = bot.send_message(call.message.chat.id, f"💬 Send your message, image, or sticker for User `{target_id}`:", reply_markup=get_cancel_markup(), parse_mode='Markdown')
     bot.register_next_step_handler(msg, lambda m: process_direct_chat_reply(m, target_id))
 
 def process_direct_chat_reply(message, target_id):
@@ -1517,6 +1550,24 @@ def handle_callbacks(call):
     data    = call.data
 
     bot.answer_callback_query(call.id)
+
+    # CANCEL FLOWS
+    if data in ['cancel_sub_flow', 'cancel_admin_flow']:
+        bot.answer_callback_query(call.id, "Action Cancelled")
+        try: bot.edit_message_text("❌ Action Cancelled.", call.message.chat.id, call.message.message_id)
+        except: bot.send_message(call.message.chat.id, "❌ Action Cancelled.")
+        return
+
+    # MORE MENU CALLBACKS
+    if data == 'how_to_use':
+        _logic_how_to_use(call.message)
+        return
+    if data == 'refer_earn':
+        _logic_refer_earn(call.message)
+        return
+    if data == 'manual_install':
+        _logic_manual_install(call.message)
+        return
 
     # 1. APPROVAL & REJECT HANDLERS
     if data.startswith('approve_'):
@@ -1577,17 +1628,17 @@ def handle_callbacks(call):
         return
 
     if data == 'set_free_limit':
-        msg = bot.send_message(call.message.chat.id, "✏️ Enter maximum files for FREE USERS:")
+        msg = bot.send_message(call.message.chat.id, "✏️ Enter maximum files for FREE USERS:", reply_markup=get_cancel_markup())
         bot.register_next_step_handler(msg, process_set_free_limit)
         return
 
     if data == 'set_sub_limit':
-        msg = bot.send_message(call.message.chat.id, "✏️ Enter maximum files for SUBSCRIBED USERS:")
+        msg = bot.send_message(call.message.chat.id, "✏️ Enter maximum files for SUBSCRIBED USERS:", reply_markup=get_cancel_markup())
         bot.register_next_step_handler(msg, process_set_sub_limit)
         return
 
     if data == 'admin_refer_reward_setting':
-        msg = bot.send_message(call.message.chat.id, "✏️ Enter Extra File Upload Slots Per Successful Referral:")
+        msg = bot.send_message(call.message.chat.id, "✏️ Enter Extra File Upload Slots Per Successful Referral:", reply_markup=get_cancel_markup())
         bot.register_next_step_handler(msg, process_set_refer_reward)
         return
 
@@ -1597,12 +1648,12 @@ def handle_callbacks(call):
         return
 
     if data == 'set_fake_users':
-        msg = bot.send_message(call.message.chat.id, "✏️ Enter fake user count to add on stats:")
+        msg = bot.send_message(call.message.chat.id, "✏️ Enter fake user count to add on stats:", reply_markup=get_cancel_markup())
         bot.register_next_step_handler(msg, process_set_fake_users)
         return
 
     if data == 'set_fake_scripts':
-        msg = bot.send_message(call.message.chat.id, "✏️ Enter fake active scripts count to add on stats:")
+        msg = bot.send_message(call.message.chat.id, "✏️ Enter fake active scripts count to add on stats:", reply_markup=get_cancel_markup())
         bot.register_next_step_handler(msg, process_set_fake_scripts)
         return
 
@@ -1637,22 +1688,22 @@ def handle_callbacks(call):
         return
 
     if data == 'add_fj_chan':
-        msg = bot.send_message(call.message.chat.id, "➕ Enter Channel Username to ADD to Force Join (e.g., `@mychannel`):")
+        msg = bot.send_message(call.message.chat.id, "➕ Enter Channel Username to ADD to Force Join (e.g., `@mychannel`):", reply_markup=get_cancel_markup())
         bot.register_next_step_handler(msg, process_add_fj_chan)
         return
 
     if data == 'rem_fj_chan':
-        msg = bot.send_message(call.message.chat.id, "➖ Enter Channel Username to REMOVE from Force Join:")
+        msg = bot.send_message(call.message.chat.id, "➖ Enter Channel Username to REMOVE from Force Join:", reply_markup=get_cancel_markup())
         bot.register_next_step_handler(msg, process_rem_fj_chan)
         return
 
     if data == 'set_approval_chan':
-        msg = bot.send_message(call.message.chat.id, "✏️ Enter new Approval Channel (e.g., `@approvalchan`):")
+        msg = bot.send_message(call.message.chat.id, "✏️ Enter new Approval Channel (e.g., `@approvalchan`):", reply_markup=get_cancel_markup())
         bot.register_next_step_handler(msg, process_set_approval_chan)
         return
 
     if data == 'set_update_chan':
-        msg = bot.send_message(call.message.chat.id, "✏️ Enter new Update Channel (e.g., `@updatechan`):")
+        msg = bot.send_message(call.message.chat.id, "✏️ Enter new Update Channel (e.g., `@updatechan`):", reply_markup=get_cancel_markup())
         bot.register_next_step_handler(msg, process_set_update_chan)
         return
 
@@ -1713,14 +1764,14 @@ def _admin_cb(call, fn):
     fn(call)
 
 def _owner_cb(call, fn):
-    if call.from_user.id != OWNER_ID: bot.answer_callback_query(call.id, "⚠️ Owner only.", show_alert=True); return
+    if int(call.from_user.id) != int(OWNER_ID): bot.answer_callback_query(call.id, "⚠️ Owner only.", show_alert=True); return
     fn(call)
 
 def upload_callback(call):
     user_id = call.from_user.id
     limit = get_user_file_limit(user_id); count = get_user_file_count(user_id)
     if count >= limit: bot.answer_callback_query(call.id, f"⚠️ File limit ({count}/{str(limit) if limit != float('inf') else '∞'}) reached.", show_alert=True); return
-    bot.send_message(call.message.chat.id, "📤 Send your `.py`, `.js`, or `.zip` file.", parse_mode='Markdown')
+    bot.send_message(call.message.chat.id, "📤 Send your `.py`, `.js`, or `.zip` file.")
 
 def check_files_callback(call):
     user_id = call.from_user.id
@@ -1896,7 +1947,7 @@ def send_command_callback(call):
     except: pass
 
 def send_to_process_callback(call):
-    msg = bot.send_message(call.message.chat.id, "📝 Type your command:")
+    msg = bot.send_message(call.message.chat.id, "📝 Type your command:", reply_markup=get_cancel_markup())
     bot.register_next_step_handler(msg, send_to_process_init)
 
 def view_all_logs_callback(call):
@@ -1934,7 +1985,7 @@ def process_broadcast_message(message):
     if not is_admin(message.from_user.id): bot.reply_to(message, "⚠️ Admin only."); return
     if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Broadcast cancelled."); return
     if not message.text and not (message.photo or message.video or message.document):
-        msg = bot.reply_to(message, "⚠️ Empty message. Send content or /cancel.")
+        msg = bot.reply_to(message, "⚠️ Empty message. Send content or /cancel.", reply_markup=get_cancel_markup())
         bot.register_next_step_handler(msg, process_broadcast_message); return
     
     raw_text = message.text or message.caption or ""
@@ -2004,11 +2055,11 @@ def admin_panel_callback(call):
         _logic_admin_panel(call.message)
 
 def add_admin_init_callback(call):
-    msg = bot.send_message(call.message.chat.id, "👑 Enter User ID to promote. /cancel to abort.")
+    msg = bot.send_message(call.message.chat.id, "👑 Enter User ID to promote as Admin:", reply_markup=get_cancel_markup())
     bot.register_next_step_handler(msg, process_add_admin_id)
 
 def process_add_admin_id(message):
-    if message.from_user.id != OWNER_ID: bot.reply_to(message, "⚠️ Owner only."); return
+    if int(message.from_user.id) != int(OWNER_ID): bot.reply_to(message, "⚠️ Owner only."); return
     if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
     try:
         nid = int(message.text.strip())
@@ -2019,15 +2070,14 @@ def process_add_admin_id(message):
         try: bot.send_message(nid, "🎉 You are now an Admin!")
         except: pass
     except ValueError:
-        msg = bot.reply_to(message, "⚠️ Invalid ID. Try again or /cancel.")
-        bot.register_next_step_handler(msg, process_add_admin_id)
+        bot.reply_to(message, "⚠️ Invalid User ID.")
 
 def remove_admin_init_callback(call):
-    msg = bot.send_message(call.message.chat.id, "👑 Enter Admin ID to demote. /cancel to abort.")
+    msg = bot.send_message(call.message.chat.id, "👑 Enter Admin ID to demote:", reply_markup=get_cancel_markup())
     bot.register_next_step_handler(msg, process_remove_admin_id)
 
 def process_remove_admin_id(message):
-    if message.from_user.id != OWNER_ID: bot.reply_to(message, "⚠️ Owner only."); return
+    if int(message.from_user.id) != int(OWNER_ID): bot.reply_to(message, "⚠️ Owner only."); return
     if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
     try:
         rid = int(message.text.strip())
@@ -2039,39 +2089,75 @@ def process_remove_admin_id(message):
             except: pass
         else: bot.reply_to(message, f"❌ Failed to remove `{rid}`.", parse_mode='Markdown')
     except ValueError:
-        msg = bot.reply_to(message, "⚠️ Invalid ID. /cancel to abort.")
-        bot.register_next_step_handler(msg, process_remove_admin_id)
+        bot.reply_to(message, "⚠️ Invalid ID.")
 
 def list_admins_callback(call):
     lines = "\n".join(f"• `{a}` {'👑' if a == OWNER_ID else ''}" for a in sorted(admin_ids))
     try: bot.edit_message_text(f"👑 *Admin List*:\n\n{lines or '(none)'}", call.message.chat.id, call.message.message_id, reply_markup=create_admin_panel(), parse_mode='Markdown')
     except: pass
 
+# ==================== STEP-BY-STEP SUBSCRIPTION FLOW ====================
 def add_subscription_init_callback(call):
-    msg = bot.send_message(call.message.chat.id, "💳 Enter: `USER_ID DAYS`\n/cancel to abort.", parse_mode='Markdown')
-    bot.register_next_step_handler(msg, process_add_subscription_details)
+    msg = bot.send_message(
+        call.message.chat.id, 
+        f"💳 *{make_bold_unicode('Step 1/2')}*\n\n👤 Target **User ID** enter karein:", 
+        reply_markup=get_cancel_markup("cancel_sub_flow"), 
+        parse_mode='Markdown'
+    )
+    bot.register_next_step_handler(msg, process_sub_get_userid)
 
-def process_add_subscription_details(message):
-    if not is_admin(message.from_user.id): bot.reply_to(message, "⚠️ Admin only."); return
-    if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
+def process_sub_get_userid(message):
+    if not is_admin(message.from_user.id): return
+    if message.text and message.text.lower() == '/cancel':
+        bot.reply_to(message, "❌ Subscription process cancelled.")
+        return
+        
     try:
-        parts = message.text.split()
-        if len(parts) != 2: raise ValueError("Format: USER_ID DAYS")
-        uid, days = int(parts[0]), int(parts[1])
-        if uid <= 0 or days <= 0: raise ValueError("Values must be positive")
-        base = user_subscriptions.get(uid, {}).get('expiry', datetime.now())
-        if base < datetime.now(): base = datetime.now()
+        target_uid = int(message.text.strip())
+        msg = bot.send_message(
+            message.chat.id, 
+            f"💳 *{make_bold_unicode('Step 2/2')}*\n\n⏳ User ID: `{target_uid}`\nKitne **Days** ke liye subscription dena chahte hain? (Number enter karein):", 
+            reply_markup=get_cancel_markup("cancel_sub_flow"), 
+            parse_mode='Markdown'
+        )
+        bot.register_next_step_handler(msg, lambda m: process_sub_get_days(m, target_uid))
+    except ValueError:
+        bot.reply_to(message, "⚠️ Invalid User ID! Process cancelled.")
+
+def process_sub_get_days(message, target_uid):
+    if not is_admin(message.from_user.id): return
+    if message.text and message.text.lower() == '/cancel':
+        bot.reply_to(message, "❌ Subscription process cancelled.")
+        return
+        
+    try:
+        days = int(message.text.strip())
+        if days <= 0:
+            bot.reply_to(message, "⚠️ Days positive number hona chahiye.")
+            return
+
+        base = user_subscriptions.get(target_uid, {}).get('expiry', datetime.now())
+        if base < datetime.now(): 
+            base = datetime.now()
+            
         exp = base + timedelta(days=days)
-        save_subscription(uid, exp)
-        bot.reply_to(message, f"✅ Sub for `{uid}` extended by {days} days. Expires: `{exp:%Y-%m-%d}`", parse_mode='Markdown')
-        try: bot.send_message(uid, f"🎉 Sub activated! Expires: {exp:%Y-%m-%d}")
+        save_subscription(target_uid, exp)
+        
+        bot.reply_to(
+            message, 
+            f"✅ Subscription Added Successfully!\n\n👤 User: `{target_uid}`\n⏳ Days: `{days}`\n📅 Expiry Date: `{exp:%Y-%m-%d}`", 
+            parse_mode='Markdown'
+        )
+        
+        try:
+            bot.send_message(target_uid, f"🎉 Premium Subscription Activated!\n⏳ Validity: `{days} Days`\n📅 Expires on: `{exp:%Y-%m-%d}`", parse_mode='Markdown')
         except: pass
-    except ValueError as e:
-        msg = bot.reply_to(message, f"⚠️ {e}. Try again or /cancel.")
-        bot.register_next_step_handler(msg, process_add_subscription_details)
+
+    except ValueError:
+        bot.reply_to(message, "⚠️ Invalid Days entry! Process cancelled.")
 
 def remove_subscription_init_callback(call):
-    msg = bot.send_message(call.message.chat.id, "💳 Enter User ID to remove sub. /cancel to abort.")
+    msg = bot.send_message(call.message.chat.id, "💳 Subscription remove karne ke liye **User ID** enter karein:", reply_markup=get_cancel_markup("cancel_sub_flow"), parse_mode='Markdown')
     bot.register_next_step_handler(msg, process_remove_subscription_id)
 
 def process_remove_subscription_id(message):
@@ -2079,17 +2165,16 @@ def process_remove_subscription_id(message):
     if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
     try:
         uid = int(message.text.strip())
-        if uid not in user_subscriptions: bot.reply_to(message, f"⚠️ No sub found for `{uid}`.", parse_mode='Markdown'); return
+        if uid not in user_subscriptions: bot.reply_to(message, f"⚠️ No subscription found for `{uid}`.", parse_mode='Markdown'); return
         remove_subscription_db(uid)
-        bot.reply_to(message, f"✅ Sub for `{uid}` removed.", parse_mode='Markdown')
+        bot.reply_to(message, f"✅ Subscription for `{uid}` removed.", parse_mode='Markdown')
         try: bot.send_message(uid, "ℹ️ Your subscription was removed by admin.")
         except: pass
     except ValueError:
-        msg = bot.reply_to(message, "⚠️ Invalid ID. /cancel to abort.")
-        bot.register_next_step_handler(msg, process_remove_subscription_id)
+        bot.reply_to(message, "⚠️ Invalid User ID.")
 
 def check_subscription_init_callback(call):
-    msg = bot.send_message(call.message.chat.id, "💳 Enter User ID to check. /cancel to abort.")
+    msg = bot.send_message(call.message.chat.id, "💳 Subscription check karne ke liye **User ID** enter karein:", reply_markup=get_cancel_markup("cancel_sub_flow"), parse_mode='Markdown')
     bot.register_next_step_handler(msg, process_check_subscription_id)
 
 def process_check_subscription_id(message):
@@ -2100,14 +2185,13 @@ def process_check_subscription_id(message):
         if uid in user_subscriptions:
             exp = user_subscriptions[uid].get('expiry')
             if exp and exp > datetime.now():
-                bot.reply_to(message, f"✅ `{uid}` has active sub.\nExpires: `{exp:%Y-%m-%d}` ({(exp - datetime.now()).days} days left)", parse_mode='Markdown')
+                bot.reply_to(message, f"✅ `{uid}` has active subscription.\nExpires: `{exp:%Y-%m-%d}` ({(exp - datetime.now()).days} days left)", parse_mode='Markdown')
             else:
-                bot.reply_to(message, f"⚠️ `{uid}` sub expired.", parse_mode='Markdown')
+                bot.reply_to(message, f"⚠️ `{uid}` subscription expired.", parse_mode='Markdown')
                 remove_subscription_db(uid)
-        else: bot.reply_to(message, f"ℹ️ `{uid}` has no subscription.", parse_mode='Markdown')
+        else: bot.reply_to(message, f"ℹ️ `{uid}` has no active subscription.", parse_mode='Markdown')
     except ValueError:
-        msg = bot.reply_to(message, "⚠️ Invalid ID. /cancel to abort.")
-        bot.register_next_step_handler(msg, process_check_subscription_id)
+        bot.reply_to(message, "⚠️ Invalid User ID.")
 
 def cleanup():
     logger.warning("Shutting down — killing all scripts...")
