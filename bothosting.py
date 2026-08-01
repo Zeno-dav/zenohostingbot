@@ -454,7 +454,7 @@ def create_reply_keyboard(user_id):
         keyboard.row(StyledKeyboardButton(text=f"👑 {make_bold_unicode('Admin Panel')}", style="danger"))
         
     # Row 5: Contact Admin
-    keyboard.row(StyledKeyboardButton(text=f"📞 {make_bold_unicode('Contact Admin')}", style="success"))
+    keyboard.row(StyledKeyboardButton(text=f"📞 {make_bold_unicode('Contact Admin (WhatsApp)')}", style="primary"))
     
     return keyboard
 
