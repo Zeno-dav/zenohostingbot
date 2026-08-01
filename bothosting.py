@@ -201,6 +201,21 @@ SUSPICIOUS_KEYWORDS = [b'ransomware', b'trojan', b'virus', b'malware', b'backdoo
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
+# Helper to edit or resend messages safely whether message is photo or text
+def smart_edit_or_send(call, text, reply_markup=None, parse_mode='Markdown'):
+    chat_id = call.message.chat.id
+    message_id = call.message.message_id
+    try:
+        if call.message.photo or call.message.video or call.message.document:
+            bot.edit_message_caption(caption=text, chat_id=chat_id, message_id=message_id, reply_markup=reply_markup, parse_mode=parse_mode)
+        else:
+            bot.edit_message_text(text=text, chat_id=chat_id, message_id=message_id, reply_markup=reply_markup, parse_mode=parse_mode)
+    except Exception:
+        try:
+            bot.send_message(chat_id, text, reply_markup=reply_markup, parse_mode=parse_mode)
+        except Exception as e:
+            logger.error(f"Error in smart_edit_or_send: {e}")
+
 def init_db():
     try:
         conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
@@ -1302,7 +1317,7 @@ def process_admin_unban_user(message):
         bot.reply_to(message, "⚠️ Invalid User ID.")
 
 # ==================== ADMIN FAKE STATS CONTROL ====================
-def admin_show_fake_stats_panel(chat_id, message_id=None):
+def admin_show_fake_stats_panel(call):
     text = (
         f"📈 *FAKE STATS CONTROLLER*\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
@@ -1321,11 +1336,7 @@ def admin_show_fake_stats_panel(chat_id, message_id=None):
     )
     markup.row(StyledInlineKeyboardButton(text="🔙 Back", callback_data="admin_panel", style="danger"))
     
-    if message_id:
-        try: bot.edit_message_text(text, chat_id, message_id, reply_markup=markup, parse_mode='Markdown')
-        except: pass
-    else:
-        bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
+    smart_edit_or_send(call, text, reply_markup=markup)
 
 def process_set_fake_users(message):
     global fake_users_count
@@ -1401,7 +1412,7 @@ def process_admin_chat_target_id(message):
         bot.reply_to(message, "❌ Invalid User ID. Chat cancelled.")
 
 # ==================== DYNAMIC CHANNELS SETTINGS ====================
-def admin_show_channel_settings(chat_id, message_id=None):
+def admin_show_channel_settings(call):
     fj_str = "\n".join(f"• `{c}`" for c in force_join_channels) or "(None)"
     text = (
         f"⚙️ *CHANNELS MANAGEMENT*\n"
@@ -1422,11 +1433,7 @@ def admin_show_channel_settings(chat_id, message_id=None):
     )
     markup.row(StyledInlineKeyboardButton(text="🔙 Back", callback_data="admin_panel", style="danger"))
     
-    if message_id:
-        try: bot.edit_message_text(text, chat_id, message_id, reply_markup=markup, parse_mode='Markdown')
-        except: pass
-    else:
-        bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
+    smart_edit_or_send(call, text, reply_markup=markup)
 
 def process_add_fj_chan(message):
     if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
@@ -1485,7 +1492,7 @@ def process_set_update_chan(message):
     bot.reply_to(message, f"✅ Update Channel set to `{chan}`!", parse_mode='Markdown')
 
 # ==================== ADMIN CONTROL LOGICS ====================
-def admin_show_limits_panel(chat_id, message_id=None):
+def admin_show_limits_panel(call):
     text = (
         f"⚙️ *FILE LIMITS CONTROLLER*\n"
         f"━━━━━━━━━━━━━━━━━━━━━\n"
@@ -1499,8 +1506,8 @@ def admin_show_limits_panel(chat_id, message_id=None):
         StyledInlineKeyboardButton(text="✏️ Set Subscribed Limit", callback_data="set_sub_limit", style="primary")
     )
     markup.row(StyledInlineKeyboardButton(text="🔙 Back", callback_data="admin_panel", style="danger"))
-    if message_id: bot.edit_message_text(text, chat_id, message_id, reply_markup=markup, parse_mode='Markdown')
-    else: bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
+    
+    smart_edit_or_send(call, text, reply_markup=markup)
 
 def process_set_free_limit(message):
     global FREE_USER_LIMIT
@@ -1668,8 +1675,7 @@ def handle_callbacks(call):
     # CANCEL FLOWS
     if data in ['cancel_sub_flow', 'cancel_admin_flow']:
         bot.answer_callback_query(call.id, "Action Cancelled")
-        try: bot.edit_message_text("❌ Action Cancelled.", call.message.chat.id, call.message.message_id)
-        except: bot.send_message(call.message.chat.id, "❌ Action Cancelled.")
+        smart_edit_or_send(call, "❌ Action Cancelled.")
         return
 
     # MORE MENU CALLBACKS
@@ -1694,11 +1700,7 @@ def handle_callbacks(call):
         fname = parts[2]
         
         update_file_status_db(oid, fname, 'Approved')
-        try:
-            bot.edit_message_caption(f"✅ File `{fname}` from User `{oid}` has been **Approved**.", call.message.chat.id, call.message.message_id, parse_mode='Markdown')
-        except:
-            try: bot.edit_message_text(f"✅ File `{fname}` from User `{oid}` has been **Approved**.", call.message.chat.id, call.message.message_id, parse_mode='Markdown')
-            except: pass
+        smart_edit_or_send(call, f"✅ File `{fname}` from User `{oid}` has been **Approved**.")
             
         try:
             bot.send_message(oid, f"🎉 Your file `{fname}` has been approved by Admin! You can now manage and start it from **My Files**.", parse_mode='Markdown')
@@ -1721,11 +1723,7 @@ def handle_callbacks(call):
             if os.path.exists(fpath): os.remove(fpath)
         except: pass
         
-        try:
-            bot.edit_message_caption(f"❌ File `{fname}` from User `{oid}` has been **Rejected & Deleted**.", call.message.chat.id, call.message.message_id, parse_mode='Markdown')
-        except:
-            try: bot.edit_message_text(f"❌ File `{fname}` from User `{oid}` has been **Rejected & Deleted**.", call.message.chat.id, call.message.message_id, parse_mode='Markdown')
-            except: pass
+        smart_edit_or_send(call, f"❌ File `{fname}` from User `{oid}` has been **Rejected & Deleted**.")
             
         try:
             bot.send_message(oid, f"❌ Your file `{fname}` was rejected by Admin.", parse_mode='Markdown')
@@ -1746,7 +1744,7 @@ def handle_callbacks(call):
         return
 
     if data == 'admin_limits_settings':
-        if is_admin(user_id): admin_show_limits_panel(call.message.chat.id, call.message.message_id)
+        if is_admin(user_id): admin_show_limits_panel(call)
         return
 
     if data == 'set_free_limit':
@@ -1766,7 +1764,7 @@ def handle_callbacks(call):
 
     if data == 'admin_fake_stats_settings':
         if is_admin(user_id):
-            admin_show_fake_stats_panel(call.message.chat.id, call.message.message_id)
+            admin_show_fake_stats_panel(call)
         return
 
     if data == 'set_fake_users':
@@ -1785,7 +1783,7 @@ def handle_callbacks(call):
         update_setting('fake_users', 0)
         update_setting('fake_scripts', 0)
         bot.send_message(call.message.chat.id, "✅ Fake Stats Reset to 0.")
-        admin_show_fake_stats_panel(call.message.chat.id)
+        admin_show_fake_stats_panel(call)
         return
 
     if data == 'admin_users_list':
@@ -1806,7 +1804,7 @@ def handle_callbacks(call):
 
     if data == 'admin_channel_settings':
         if is_admin(user_id):
-            admin_show_channel_settings(call.message.chat.id, call.message.message_id)
+            admin_show_channel_settings(call)
         return
 
     if data == 'add_fj_chan':
@@ -1938,11 +1936,11 @@ def file_control_callback(call):
             markup = types.InlineKeyboardMarkup(row_width=1)
             markup.add(StyledInlineKeyboardButton(text=f"🗑️ {make_bold_unicode('Delete')}", callback_data=f'delete_{oid}_{fname}', style="danger"))
             markup.add(StyledInlineKeyboardButton(text=f"🔙 {make_bold_unicode('Back')}", callback_data='check_files', style="danger"))
-            bot.edit_message_text(f"⚙️ *{fname}* `[{ft}]`\nStatus: ⏳ Pending Admin Approval", call.message.chat.id, call.message.message_id, reply_markup=markup, parse_mode='Markdown')
+            smart_edit_or_send(call, f"⚙️ *{fname}* `[{ft}]`\nStatus: ⏳ Pending Admin Approval", reply_markup=markup)
         else:
             running = is_bot_running(oid, fname)
             status = "🟢 Running" if running else "🔴 Stopped"
-            bot.edit_message_text(f"⚙️ *{fname}* `[{ft}]`\nOwner: `{oid}` | Status: {status}", call.message.chat.id, call.message.message_id, reply_markup=create_control_buttons(oid, fname, running), parse_mode='Markdown')
+            smart_edit_or_send(call, f"⚙️ *{fname}* `[{ft}]`\nOwner: `{oid}` | Status: {status}", reply_markup=create_control_buttons(oid, fname, running))
     except: bot.answer_callback_query(call.id, "Error.", show_alert=True)
 
 def start_bot_callback(call):
@@ -1961,8 +1959,7 @@ def start_bot_callback(call):
         threading.Thread(target=fn, args=(fpath, oid, folder, fname, call.message)).start()
         time.sleep(1.5)
         running = is_bot_running(oid, fname)
-        try: bot.edit_message_text(f"⚙️ *{fname}* `[{ft}]`\nStatus: {'🟢 Running' if running else '🟡 Starting...'}", call.message.chat.id, call.message.message_id, reply_markup=create_control_buttons(oid, fname, running), parse_mode='Markdown')
-        except: pass
+        smart_edit_or_send(call, f"⚙️ *{fname}* `[{ft}]`\nStatus: {'🟢 Running' if running else '🟡 Starting...'}", reply_markup=create_control_buttons(oid, fname, running))
     except: bot.answer_callback_query(call.id, "Error starting.", show_alert=True)
 
 def stop_bot_callback(call):
@@ -1976,8 +1973,7 @@ def stop_bot_callback(call):
         if not is_bot_running(oid, fname): bot.answer_callback_query(call.id, "⚠️ Not running.", show_alert=True); return
         info = bot_scripts.get(key)
         if info: kill_process_tree(info); bot_scripts.pop(key, None)
-        try: bot.edit_message_text(f"⚙️ *{fname}* `[{ft}]`\nStatus: 🔴 Stopped", call.message.chat.id, call.message.message_id, reply_markup=create_control_buttons(oid, fname, False), parse_mode='Markdown')
-        except: pass
+        smart_edit_or_send(call, f"⚙️ *{fname}* `[{ft}]`\nStatus: 🔴 Stopped", reply_markup=create_control_buttons(oid, fname, False))
     except: bot.answer_callback_query(call.id, "Error stopping.", show_alert=True)
 
 def restart_bot_callback(call):
@@ -1998,8 +1994,7 @@ def restart_bot_callback(call):
         threading.Thread(target=fn, args=(fpath, oid, folder, fname, call.message)).start()
         time.sleep(1.5)
         running = is_bot_running(oid, fname)
-        try: bot.edit_message_text(f"⚙️ *{fname}* `[{ft}]`\nStatus: {'🟢 Running' if running else '🟡 Starting...'}", call.message.chat.id, call.message.message_id, reply_markup=create_control_buttons(oid, fname, running), parse_mode='Markdown')
-        except: pass
+        smart_edit_or_send(call, f"⚙️ *{fname}* `[{ft}]`\nStatus: {'🟢 Running' if running else '🟡 Starting...'}", reply_markup=create_control_buttons(oid, fname, running))
     except: bot.answer_callback_query(call.id, "Error restarting.", show_alert=True)
 
 def delete_bot_callback(call):
@@ -2017,8 +2012,7 @@ def delete_bot_callback(call):
                 if os.path.exists(p): os.remove(p)
             except: pass
         remove_user_file_db(oid, fname)
-        try: bot.edit_message_text(f"🗑️ `{fname}` deleted successfully!", call.message.chat.id, call.message.message_id, parse_mode='Markdown')
-        except: pass
+        smart_edit_or_send(call, f"🗑️ `{fname}` deleted successfully!")
     except: bot.answer_callback_query(call.id, "Error deleting.", show_alert=True)
 
 def logs_bot_callback(call):
@@ -2051,10 +2045,7 @@ def speed_callback(call):
         elif uid in user_subscriptions and user_subscriptions[uid].get('expiry', datetime.min) > datetime.now(): lvl = "⭐ Premium"
         else: lvl = "🆓 Free"
         text = f"⚡ *Speed Report*\n━━━━━━━━━━━━━━━\n📶 Ping: `{ms} ms`\n🚦 Bot: {'🔒 Locked' if bot_locked else '🟢 Online'}\n👤 You: {lvl}\n━━━━━━━━━━━━━━━"
-        try:
-            bot.edit_message_text(text, cid, call.message.message_id, reply_markup=create_main_menu_inline(uid), parse_mode='Markdown')
-        except:
-            bot.send_message(cid, text, reply_markup=create_main_menu_inline(uid), parse_mode='Markdown')
+        smart_edit_or_send(call, text, reply_markup=create_main_menu_inline(uid))
     except: bot.answer_callback_query(call.id, "Error.", show_alert=True)
 
 def back_to_main_callback(call):
@@ -2068,13 +2059,10 @@ def back_to_main_callback(call):
         st  = "⭐ Premium" if exp and exp > datetime.now() else "🆓 Free"
     else: st = "🆓 Free"
     text = f"💀 *{BOT_NAME}*\n━━━━━━━━━━━━━━━\n👋 {call.from_user.first_name}\n🆔 `{uid}` | 🔰 {st}\n📁 Files: {count}/{ls}\n━━━━━━━━━━━━━━━"
-    try:
-        bot.edit_message_text(text, call.message.chat.id, call.message.message_id, reply_markup=create_main_menu_inline(uid), parse_mode='Markdown')
-    except: pass
+    smart_edit_or_send(call, text, reply_markup=create_main_menu_inline(uid))
 
 def send_command_callback(call):
-    try: bot.edit_message_text("📤 *Send Command*", call.message.chat.id, call.message.message_id, reply_markup=create_send_command_menu(), parse_mode='Markdown')
-    except: pass
+    smart_edit_or_send(call, "📤 *Send Command*", reply_markup=create_send_command_menu())
 
 def send_to_process_callback(call):
     msg = bot.send_message(call.message.chat.id, "📝 Type your command:", reply_markup=get_cancel_markup())
@@ -2096,18 +2084,15 @@ def stats_callback(call):
     _logic_statistics(call.message)
 
 def subscription_management_callback(call):
-    try: bot.edit_message_text("💳 *Subscription Manager*", call.message.chat.id, call.message.message_id, reply_markup=create_subscription_menu(), parse_mode='Markdown')
-    except: pass
+    smart_edit_or_send(call, "💳 *Subscription Manager*", reply_markup=create_subscription_menu())
 
 def lock_bot_callback(call):
     global bot_locked; bot_locked = True
-    try: bot.edit_message_text("👑 *Admin Panel*", call.message.chat.id, call.message.message_id, reply_markup=create_admin_panel(), parse_mode='Markdown')
-    except: pass
+    smart_edit_or_send(call, "👑 *Admin Panel*", reply_markup=create_admin_panel())
 
 def unlock_bot_callback(call):
     global bot_locked; bot_locked = False
-    try: bot.edit_message_text("👑 *Admin Panel*", call.message.chat.id, call.message.message_id, reply_markup=create_admin_panel(), parse_mode='Markdown')
-    except: pass
+    smart_edit_or_send(call, "👑 *Admin Panel*", reply_markup=create_admin_panel())
 
 def run_all_scripts_callback(call): _logic_run_all_scripts(call)
 
@@ -2140,9 +2125,9 @@ def handle_confirm_broadcast(call):
         elif orig.photo: photo = orig.photo[-1].file_id; caption = orig.caption
         elif orig.video: video = orig.video.file_id;     caption = orig.caption
         else: raise ValueError("Unsupported media type.")
-        bot.edit_message_text(f"📢 Broadcasting to {len(active_users)} users...", call.message.chat.id, call.message.message_id)
+        smart_edit_or_send(call, f"📢 Broadcasting to {len(active_users)} users...")
         threading.Thread(target=execute_broadcast, args=(text, photo, video, caption, call.message.chat.id)).start()
-    except Exception as e: bot.edit_message_text(f"❌ Error: {e}", call.message.chat.id, call.message.message_id)
+    except Exception as e: smart_edit_or_send(call, f"❌ Error: {e}")
 
 def handle_cancel_broadcast(call):
     try: bot.delete_message(call.message.chat.id, call.message.message_id)
@@ -2223,8 +2208,7 @@ def process_remove_admin_id(message):
 
 def list_admins_callback(call):
     lines = "\n".join(f"• `{a}` {'👑' if a == OWNER_ID else ''}" for a in sorted(admin_ids))
-    try: bot.edit_message_text(f"👑 *Admin List*:\n\n{lines or '(none)'}", call.message.chat.id, call.message.message_id, reply_markup=create_admin_panel(), parse_mode='Markdown')
-    except: pass
+    smart_edit_or_send(call, f"👑 *Admin List*:\n\n{lines or '(none)'}", reply_markup=create_admin_panel())
 
 # ==================== STEP-BY-STEP SUBSCRIPTION FLOW ====================
 def add_subscription_init_callback(call):
