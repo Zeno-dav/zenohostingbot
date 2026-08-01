@@ -22,7 +22,7 @@ import hashlib
 import io
 
 # ==================== ADVANCED PREMIUM TEXT STYLIZER HELPER ====================
-FIRST_UPPER = "𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙"
+FIRST_UPPER = "𝐀𝐁𝐂Ｄ𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙"
 SMALL_CAPS  = "ᴀʙᴄᴅᴇғɢʜɪᴊᴋʟᴍɴᴏᴘǫʀsᴛᴜᴠᴡxʏᴢ"
 
 def make_bold_unicode(text):
@@ -129,7 +129,9 @@ admin_ids = {int(ADMIN_ID), int(OWNER_ID)}
 def is_admin(user_id):
     try:
         uid = int(user_id)
-        return uid == int(OWNER_ID) or uid == int(ADMIN_ID) or uid in admin_ids
+        if uid == int(OWNER_ID) or uid == int(ADMIN_ID):
+            return True
+        return uid in admin_ids
     except:
         return False
 
@@ -452,7 +454,7 @@ def create_reply_keyboard(user_id):
         keyboard.row(StyledKeyboardButton(text=f"👑 {make_bold_unicode('Admin Panel')}", style="danger"))
         
     # Row 5: Contact Admin
-    keyboard.row(StyledKeyboardButton(text=f"📞 {make_bold_unicode('Contact Admin (WhatsApp)')}", style="primary"))
+    keyboard.row(StyledKeyboardButton(text=f"📞 {make_bold_unicode('Contact Admin')}", style="success"))
     
     return keyboard
 
