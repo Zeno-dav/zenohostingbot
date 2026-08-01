@@ -19,6 +19,7 @@ import sys
 import atexit
 import requests
 import hashlib
+import urllib.parse
 
 # ==================== TEXT BOLD / STYLIZED UNICODE HELPER ====================
 def make_bold_unicode(text):
@@ -75,7 +76,6 @@ CREDIT = "𐌆ᴇɴᴏ"
 WELCOME_IMAGE_URL = 'https://pin.it/49cqGezjz'
 UPLOAD_IMAGE_URL = 'https://pin.it/49cqGezjz' 
 SPEED_IMAGE_URL  = 'https://pin.it/49cqGezjz'
-STATS_IMAGE_URL  = 'https://pin.it/49cqGezjz'
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 UPLOAD_BOTS_DIR = os.path.join(BASE_DIR, 'upload_bots')
@@ -86,6 +86,48 @@ FREE_USER_LIMIT = 10
 SUBSCRIBED_USER_LIMIT = 15
 ADMIN_LIMIT = 999
 OWNER_LIMIT = float('inf')
+
+# ==================== TARGETED SPAM PROTECTION & BAN SYSTEM ====================
+user_heavy_action_timestamps = {}
+temp_banned_users = {}
+
+SPAM_WINDOW_SECONDS = 20    # Time window: 20 Seconds
+MAX_HEAVY_ACTIONS = 10      # Threshold: 10 Actions
+BAN_DURATION_MINUTES = 5    # Ban Duration: 5 Minutes
+
+def is_user_banned(user_id):
+    if user_id in admin_ids:
+        return False, None
+    
+    now = datetime.now()
+    if user_id in temp_banned_users:
+        unban_time = temp_banned_users[user_id]
+        if now < unban_time:
+            remaining = int((unban_time - now).total_seconds())
+            return True, f"🚫 **Spam Protection Active!** You performed too many heavy actions.\n⏳ Try again in `{remaining} seconds`."
+        else:
+            del temp_banned_users[user_id]
+            user_heavy_action_timestamps.pop(user_id, None)
+            
+    return False, None
+
+def track_heavy_action(user_id):
+    if user_id in admin_ids:
+        return False, None
+
+    now = datetime.now()
+    if user_id not in user_heavy_action_timestamps:
+        user_heavy_action_timestamps[user_id] = []
+        
+    timestamps = [t for t in user_heavy_action_timestamps[user_id] if (now - t).total_seconds() <= SPAM_WINDOW_SECONDS]
+    timestamps.append(now)
+    user_heavy_action_timestamps[user_id] = timestamps
+
+    if len(timestamps) >= MAX_HEAVY_ACTIONS:
+        temp_banned_users[user_id] = now + timedelta(minutes=BAN_DURATION_MINUTES)
+        return True, f"🚨 **Auto Ban Executed!** Detected 10+ spam actions within 20s.\n🚫 You are banned for **{BAN_DURATION_MINUTES} minutes**!"
+        
+    return False, None
 
 os.makedirs(UPLOAD_BOTS_DIR, exist_ok=True)
 os.makedirs(IROTECH_DIR, exist_ok=True)
@@ -136,6 +178,8 @@ def init_db():
         
         c.execute('INSERT OR IGNORE INTO settings VALUES (?, ?)', ('fake_users', 0))
         c.execute('INSERT OR IGNORE INTO settings VALUES (?, ?)', ('fake_scripts', 0))
+        c.execute('INSERT OR IGNORE INTO settings VALUES (?, ?)', ('free_limit', 10))
+        c.execute('INSERT OR IGNORE INTO settings VALUES (?, ?)', ('subscribed_limit', 15))
         
         conn.commit()
         conn.close()
@@ -143,7 +187,7 @@ def init_db():
         logger.error(f"❌ Database init error: {e}")
 
 def load_data():
-    global APPROVAL_CHANNEL, UPDATE_CHANNEL, fake_users_count, fake_scripts_count
+    global APPROVAL_CHANNEL, UPDATE_CHANNEL, fake_users_count, fake_scripts_count, FREE_USER_LIMIT, SUBSCRIBED_USER_LIMIT
     try:
         conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
         c = conn.cursor()
@@ -170,6 +214,8 @@ def load_data():
         for k, v in c.fetchall():
             if k == 'fake_users': fake_users_count = v
             elif k == 'fake_scripts': fake_scripts_count = v
+            elif k == 'free_limit': FREE_USER_LIMIT = v
+            elif k == 'subscribed_limit': SUBSCRIBED_USER_LIMIT = v
             
         conn.close()
     except Exception as e: pass
@@ -323,7 +369,8 @@ def create_admin_panel():
         StyledInlineKeyboardButton(text=f"📢 {make_bold_unicode('CHANNELS SETTINGS')}", callback_data='admin_channel_settings')
     )
     keyboard.row(
-        StyledInlineKeyboardButton(text=f"📈 {make_bold_unicode('FAKE STATS SETTINGS')}", callback_data='admin_fake_stats_settings')
+        StyledInlineKeyboardButton(text=f"📈 {make_bold_unicode('FAKE STATS')}", callback_data='admin_fake_stats_settings'),
+        StyledInlineKeyboardButton(text=f"⚙️ {make_bold_unicode('FILE LIMITS')}", callback_data='admin_limits_settings')
     )
     lock_text = f"🔓 {make_bold_unicode('UNLOCK BOT')}" if bot_locked else f"🔒 {make_bold_unicode('LOCK BOT')}"
     cb_text = 'unlock_bot' if bot_locked else 'lock_bot'
@@ -540,7 +587,6 @@ def run_script(script_path, owner_id, user_folder, file_name, msg_obj, attempt=1
     try:
         if not os.path.exists(script_path): bot.reply_to(msg_obj, f"❌ Script `{file_name}` not found!"); return
         
-        # Auto install dependencies before execution
         auto_scan_and_install_deps(script_path, user_folder, msg_obj)
 
         log_path = os.path.join(user_folder, f"{os.path.splitext(file_name)[0]}.log")
@@ -840,16 +886,27 @@ def _logic_statistics(message):
     user_id = message.from_user.id
     running_real = sum(1 for k, v in bot_scripts.items() if is_bot_running(v['script_owner_id'], v['file_name']))
     
-    display_users = len(active_users) + fake_users_count
-    display_scripts = running_real + fake_scripts_count
-    
-    user_running = sum(1 for k, v in bot_scripts.items() if v['script_owner_id'] == user_id and is_bot_running(user_id, v['file_name']))
-    text = f"📊 *Statistics*\n━━━━━━━━━━━━━━━\n👥 Total Users: {display_users}\n📁 File Records: {sum(len(v) for v in user_files.values())}\n🟢 Active Scripts: {display_scripts}\n🤖 Your Scripts: {user_running}\n"
-    if user_id in admin_ids: text += f"🔒 Bot: {'Locked' if bot_locked else 'Unlocked'}\n"
-    text += f"━━━━━━━━━━━━━━━\n✨ {CREDIT}"
-    
-    try: bot.send_photo(message.chat.id, STATS_IMAGE_URL, caption=text, parse_mode='Markdown')
-    except: bot.reply_to(message, text, parse_mode='Markdown')
+    boostUsers = len(active_users) + fake_users_count
+    boostOrders = running_real + fake_scripts_count
+    total_files = sum(len(v) for v in user_files.values())
+
+    chart_url = (
+        f"https://quickchart.io/chart?bkg=white&c={{type:%27bar%27,data:{{labels:['Statistics'],"
+        f"datasets:[{{label:%27👥 Users%27,data:[\"{boostUsers}\"],backgroundColor:%27rgba(54,162,235,0.5)%27,borderColor:%27rgb(54,162,235)%27,borderWidth:2}},"
+        f"{{label:%27📦 Orders%27,data:[\"{boostOrders}\"],backgroundColor:%27rgba(255,99,132,0.5)%27,borderColor:%27rgb(255,99,132)%27,borderWidth:2}}]}},"
+        f"options:{{title:{{display:true,text:%27📊 BOT OVERVIEW%27,fontSize:16}}}}}}"
+    )
+
+    text = (
+        f"[📊 Statistics Chart]({chart_url})\n\n"
+        f"📊 **Statistics**\n"
+        f"━━━━━━━━━━━━━━━\n"
+        f"👥 **Total Users**: {boostUsers}\n"
+        f"📁 **File Records**: {total_files}\n"
+        f"🟢 **Active Scripts**: {boostOrders}"
+    )
+
+    bot.send_message(message.chat.id, text, parse_mode='Markdown', disable_web_page_preview=False)
 
 def _logic_broadcast_init(message):
     if message.from_user.id not in admin_ids: 
@@ -923,17 +980,74 @@ BUTTON_MAP = {
 
 @bot.message_handler(commands=['start', 'help'])
 def cmd_start(message): 
+    banned, msg = is_user_banned(message.from_user.id)
+    if banned:
+        bot.reply_to(message, msg, parse_mode='Markdown')
+        return
     _logic_send_welcome(message)
 
 @bot.message_handler(commands=['status'])
 def cmd_status(message): 
+    banned, msg = is_user_banned(message.from_user.id)
+    if banned:
+        bot.reply_to(message, msg, parse_mode='Markdown')
+        return
     _logic_statistics(message)
 
 @bot.message_handler(commands=['ping'])
 def cmd_ping(message):
+    banned, msg = is_user_banned(message.from_user.id)
+    if banned:
+        bot.reply_to(message, msg, parse_mode='Markdown')
+        return
     t0  = time.time()
-    msg = bot.reply_to(message, "🏓 Pong!")
-    bot.edit_message_text(f"🏓 Pong! `{round((time.time() - t0) * 1000, 2)} ms`", message.chat.id, msg.message_id, parse_mode='Markdown')
+    msg_res = bot.reply_to(message, "🏓 Pong!")
+    bot.edit_message_text(f"🏓 Pong! `{round((time.time() - t0) * 1000, 2)} ms`", message.chat.id, msg_res.message_id, parse_mode='Markdown')
+
+# ==================== ADMIN FILE LIMITS CONTROL ====================
+def admin_show_limits_panel(chat_id, message_id=None):
+    text = (
+        f"⚙️ *FILE LIMITS CONTROLLER*\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🆓 *Free User Allowed Files:* `{FREE_USER_LIMIT}`\n"
+        f"⭐ *Subscription User Allowed Files:* `{SUBSCRIBED_USER_LIMIT}`\n"
+        f"━━━━━━━━━━━━━━━━━━━━━\n"
+        f"💡 Set how many files each tier can upload & run."
+    )
+    markup = types.InlineKeyboardMarkup(row_width=2)
+    markup.row(
+        StyledInlineKeyboardButton(text="✏️ Set Free Limit", callback_data="set_free_limit"),
+        StyledInlineKeyboardButton(text="✏️ Set Subscribed Limit", callback_data="set_sub_limit")
+    )
+    markup.row(StyledInlineKeyboardButton(text="🔙 Back", callback_data="admin_panel"))
+    
+    if message_id:
+        try: bot.edit_message_text(text, chat_id, message_id, reply_markup=markup, parse_mode='Markdown')
+        except: pass
+    else:
+        bot.send_message(chat_id, text, reply_markup=markup, parse_mode='Markdown')
+
+def process_set_free_limit(message):
+    global FREE_USER_LIMIT
+    try:
+        val = int(message.text.strip())
+        if val < 1: raise ValueError
+        FREE_USER_LIMIT = val
+        update_setting('free_limit', val)
+        bot.reply_to(message, f"✅ Free User limit updated to `{val}` files!", parse_mode='Markdown')
+    except:
+        bot.reply_to(message, "❌ Invalid number format. Enter positive integer.")
+
+def process_set_sub_limit(message):
+    global SUBSCRIBED_USER_LIMIT
+    try:
+        val = int(message.text.strip())
+        if val < 1: raise ValueError
+        SUBSCRIBED_USER_LIMIT = val
+        update_setting('subscribed_limit', val)
+        bot.reply_to(message, f"✅ Subscribed User limit updated to `{val}` files!", parse_mode='Markdown')
+    except:
+        bot.reply_to(message, "❌ Invalid number format. Enter positive integer.")
 
 # ==================== ADMIN FAKE STATS CONTROL ====================
 def admin_show_fake_stats_panel(chat_id, message_id=None):
@@ -1106,6 +1220,10 @@ def process_set_update_chan(message):
 
 @bot.message_handler(func=lambda m: m.text is not None)
 def handle_buttons(message):
+    banned, msg = is_user_banned(message.from_user.id)
+    if banned:
+        bot.reply_to(message, msg, parse_mode='Markdown')
+        return
     fn = BUTTON_MAP.get(message.text)
     if fn:
         fn(message)
@@ -1125,10 +1243,22 @@ def cmd_contact(m): _logic_contact_owner(m)
 @bot.message_handler(commands=['admin'])
 def cmd_admin(m):  _logic_admin_panel(m)
 
+# HEAVY ACTION 1: MULTI FILE UPLOADS TRACKING
 @bot.message_handler(content_types=['document'])
 def handle_document(message):
     user_id = message.from_user.id
-    doc     = message.document
+    
+    banned, ban_msg = is_user_banned(user_id)
+    if banned:
+        bot.reply_to(message, ban_msg, parse_mode='Markdown')
+        return
+
+    banned_now, ban_trigger_msg = track_heavy_action(user_id)
+    if banned_now:
+        bot.reply_to(message, ban_trigger_msg, parse_mode='Markdown')
+        return
+
+    doc = message.document
 
     if not is_member(user_id):
         markup = types.InlineKeyboardMarkup()
@@ -1197,7 +1327,7 @@ def sendcmd_select_callback(call):
     msg = bot.send_message(call.message.chat.id, f"📝 Enter command for `{key}`:", parse_mode='Markdown')
     bot.register_next_step_handler(msg, lambda m: process_send_command(m, key))
 
-# ==================== ADVANCED MULTI-MEDIA DIRECT CHAT ====================
+# HEAVY ACTION 2: DIRECT ADMIN CHAT SPAM TRACKING
 def start_direct_chat_reply(call):
     bot.answer_callback_query(call.id)
     target_id = int(call.data.split('_')[1])
@@ -1205,11 +1335,22 @@ def start_direct_chat_reply(call):
     bot.register_next_step_handler(msg, lambda m: process_direct_chat_reply(m, target_id))
 
 def process_direct_chat_reply(message, target_id):
+    sender_id = message.from_user.id
+
+    banned, ban_msg = is_user_banned(sender_id)
+    if banned:
+        bot.reply_to(message, ban_msg, parse_mode='Markdown')
+        return
+
+    banned_now, ban_trigger_msg = track_heavy_action(sender_id)
+    if banned_now:
+        bot.reply_to(message, ban_trigger_msg, parse_mode='Markdown')
+        return
+
     if message.text and message.text.lower() == '/cancel':
         bot.reply_to(message, "Message cancelled.")
         return
     
-    sender_id = message.from_user.id
     sender_name = message.from_user.first_name
     
     try:
@@ -1228,16 +1369,21 @@ def process_direct_chat_reply(message, target_id):
     except Exception as e:
         bot.reply_to(message, f"❌ Failed to send: {e}")
 
-# ==================== CALLBACK ROUTER & APPROVAL FIX ====================
+# ==================== CALLBACK ROUTER ====================
 @bot.callback_query_handler(func=lambda c: True)
 def handle_callbacks(call):
     global bot_locked, fake_users_count, fake_scripts_count
     user_id = call.from_user.id
     data    = call.data
 
+    banned, ban_msg = is_user_banned(user_id)
+    if banned:
+        bot.answer_callback_query(call.id, ban_msg, show_alert=True)
+        return
+
     bot.answer_callback_query(call.id)
 
-    # 1. APPROVAL & REJECT HANDLERS FIRST
+    # 1. APPROVAL & REJECT HANDLERS (EXPLICIT)
     if data.startswith('approve_'):
         if user_id not in admin_ids:
             bot.answer_callback_query(call.id, "⚠️ Admin only.", show_alert=True)
@@ -1286,9 +1432,24 @@ def handle_callbacks(call):
         except: pass
         return
 
-    # 2. OTHER HANDLERS
+    # 2. OTHER CALLBACK HANDLERS
     if data.startswith('chat_'):
         start_direct_chat_reply(call)
+        return
+
+    if data == 'admin_limits_settings':
+        if user_id in admin_ids:
+            admin_show_limits_panel(call.message.chat.id, call.message.message_id)
+        return
+
+    if data == 'set_free_limit':
+        msg = bot.send_message(call.message.chat.id, "✏️ Enter maximum files for FREE USERS:")
+        bot.register_next_step_handler(msg, process_set_free_limit)
+        return
+
+    if data == 'set_sub_limit':
+        msg = bot.send_message(call.message.chat.id, "✏️ Enter maximum files for SUBSCRIBED USERS:")
+        bot.register_next_step_handler(msg, process_set_sub_limit)
         return
 
     if data == 'admin_fake_stats_settings':
