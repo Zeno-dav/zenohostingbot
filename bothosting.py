@@ -99,7 +99,7 @@ CREDIT = "𐌆ᴇɴᴏ"
 
 WELCOME_IMAGE_URL = 'https://pin.it/49cqGezjz'
 UPLOAD_IMAGE_URL = 'https://pin.it/7xjBM8IN3' 
-SPEED_IMAGE_URL  = 'https://pin.it/49cqGezjz'
+SPEED_IMAGE_URL  = 'https://pin.it/SGALjiQuB'
 STATS_IMAGE_URL  = 'https://pin.it/49cqGezjz'
 
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
@@ -385,22 +385,24 @@ def remove_admin_db(admin_id):
 # ==================== KEYBOARDS ====================
 def create_reply_keyboard(user_id):
     keyboard = types.ReplyKeyboardMarkup(resize_keyboard=True)
-    keyboard.row(StyledKeyboardButton(text=f"📤 {make_bold_unicode('Upload File')}", style="primary"))
+    keyboard.row(StyledKeyboardButton(text=f"📤 {make_bold_unicode('Upload File')}", style="success"))
     keyboard.row(
         StyledKeyboardButton(text=f"📂 {make_bold_unicode('My Files')}", style="primary"),
         StyledKeyboardButton(text=f"⚡ {make_bold_unicode('Speed Test')}", style="primary")
     )
     keyboard.row(
-        StyledKeyboardButton(text=f"📊 {make_bold_unicode('Statistics')}", style="primary"),
-        StyledKeyboardButton(text=f"🎁 {make_bold_unicode('Refer & Earn')}", style="primary")
+        StyledKeyboardButton(text=f"📊 {make_bold_unicode('Statistics')}", style="success"),
+        StyledKeyboardButton(text=f"🎁 {make_bold_unicode('Refer & Earn')}", style="success")
     )
     keyboard.row(
-        StyledKeyboardButton(text=f"📖 {make_bold_unicode('How To Use')}", style="primary"),
-        StyledKeyboardButton(text=f"📦 {make_bold_unicode('Manual Install')}", style="primary")
+        StyledKeyboardButton(text=f"📊 {make_bold_unicode('Send Command')}", style="primary")
+        )
+    keyboard.row(
+        StyledKeyboardButton(text=f"📖 {make_bold_unicode('How To Use')}", style="success"),
+        StyledKeyboardButton(text=f"📦 {make_bold_unicode('Manual Install')}", style="success")
     )
     if is_admin(user_id):
         keyboard.row(
-            StyledKeyboardButton(text=f"📤 {make_bold_unicode('Send Command')}", style="primary"),
             StyledKeyboardButton(text=f"👑 {make_bold_unicode('Admin Panel')}", style="danger")
         )
     keyboard.row(StyledKeyboardButton(text=f"📞 {make_bold_unicode('Contact Admin (WhatsApp)')}", style="primary"))
