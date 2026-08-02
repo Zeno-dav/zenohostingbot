@@ -20,7 +20,6 @@ import atexit
 import requests
 import hashlib
 import io
-from urllib.parse import urlparse
 
 # ==================== ADVANCED PREMIUM TEXT STYLIZER HELPER ====================
 FIRST_UPPER = "𝐀𝐁𝐂𝐃𝐄𝐅𝐆𝐇𝐈𝐉𝐊𝐋𝐌𝐍𝐎𝐏𝐐𝐑𝐒𝐓𝐔𝐕𝐖𝐗𝐘𝐙"
@@ -202,18 +201,25 @@ SUSPICIOUS_KEYWORDS = [b'ransomware', b'trojan', b'virus', b'malware', b'backdoo
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# --- PERFECT LINK & USERNAME CLEANER HELPER ---
-def extract_clean_channel_info(channel_str):
-    clean_str = channel_str.strip()
-    if clean_str.startswith("http://") or clean_str.startswith("https://"):
-        parsed = urlparse(clean_str)
-        path = parsed.path.strip('/')
-        username = '@' + path if not path.startswith('@') else path
-        url = clean_str
+# --- SMART CHANNEL & LINK PARSER (CRITICAL FIX) ---
+def parse_channel_input(raw_input):
+    """
+    Parses any channel string (link, @username, raw username) 
+    and returns (clean_username_with_at, valid_telegram_url).
+    """
+    if not raw_input:
+        return "", ""
+    clean = raw_input.strip()
+    # Extract username using regex
+    match = re.search(r'(?:https?://)?(?:t\.me|telegram\.me)/([a-zA-Z0-9_]+)', clean)
+    if match:
+        uname = match.group(1)
     else:
-        username = '@' + clean_str.lstrip('@')
-        url = f"https://t.me/{clean_str.lstrip('@')}"
-    return username, url
+        uname = clean.lstrip('@')
+    
+    clean_username = f"@{uname}"
+    valid_url = f"https://t.me/{uname}"
+    return clean_username, valid_url
 
 # Helper to edit or resend messages safely whether message is photo or text
 def smart_edit_or_send(call, text, reply_markup=None, parse_mode='Markdown'):
@@ -287,7 +293,7 @@ def load_data():
         
         c.execute('SELECT channel_type, channel_val FROM channels')
         for ctype, cval in c.fetchall():
-            clean_username, _ = extract_clean_channel_info(cval)
+            clean_username, _ = parse_channel_input(cval)
             if ctype == 'force_join': force_join_channels.add(clean_username)
             elif ctype == 'approval': APPROVAL_CHANNEL = clean_username
             elif ctype == 'update': UPDATE_CHANNEL = clean_username
@@ -585,7 +591,7 @@ def is_member(user_id: int) -> bool:
     if not force_join_channels: return True
     for ch in force_join_channels:
         try:
-            ch_user, _ = extract_clean_channel_info(ch)
+            ch_user, _ = parse_channel_input(ch)
             member = bot.get_chat_member(ch_user, user_id)
             if member.status in ['left', 'kicked']: return False
         except Exception as e:
@@ -596,7 +602,7 @@ def is_member(user_id: int) -> bool:
 def prompt_force_join(chat_id):
     markup = types.InlineKeyboardMarkup()
     for idx, ch in enumerate(force_join_channels, 1):
-        _, url = extract_clean_channel_info(ch)
+        _, url = parse_channel_input(ch)
         markup.add(StyledInlineKeyboardButton(text=f"✅ Join Channel #{idx}", url=url, style="primary"))
     markup.add(StyledInlineKeyboardButton(text="🔄 I Joined — Verify", callback_data='verify_join', style="primary"))
     bot.send_message(chat_id, f"👋 Welcome to *{BOT_NAME}*!\n\n⚠️ You must join our required channels first to continue.", reply_markup=markup, parse_mode='Markdown')
@@ -609,7 +615,7 @@ def check_force_join(message_or_call):
         if not is_member(user_id):
             bot.answer_callback_query(
                 message_or_call.id, 
-                "⚠️ Join first all required channels to access this feature!", 
+                "⚠️ Please join all required channels first!", 
                 show_alert=True
             )
             return False
@@ -800,7 +806,7 @@ def notify_admins_and_channel(user_id, file_name, file_path):
 
     if APPROVAL_CHANNEL:
         try:
-            ch_user, _ = extract_clean_channel_info(APPROVAL_CHANNEL)
+            ch_user, _ = parse_channel_input(APPROVAL_CHANNEL)
             with open(file_path, 'rb') as doc_file:
                 bot.send_document(ch_user, doc_file, caption=f"🚀 **{make_bold_unicode('New Hosted File Received!')}**\n\n📁 File Name: `{file_name}`\n👤 Developer ID: `{user_id}`", parse_mode='Markdown')
         except: pass
@@ -1456,7 +1462,7 @@ def admin_show_channel_settings(call):
 
 def process_add_fj_chan(message):
     if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
-    chan_user, _ = extract_clean_channel_info(message.text)
+    chan_user, _ = parse_channel_input(message.text)
     with DB_LOCK:
         conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
         c = conn.cursor()
@@ -1468,20 +1474,24 @@ def process_add_fj_chan(message):
 
 def process_rem_fj_chan(message):
     if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
-    chan_user, _ = extract_clean_channel_info(message.text)
+    chan_user, _ = parse_channel_input(message.text)
     with DB_LOCK:
         conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
         c = conn.cursor()
         c.execute('DELETE FROM channels WHERE channel_type=? AND channel_val=?', ('force_join', chan_user))
+        c.execute('DELETE FROM channels WHERE channel_type=? AND channel_val LIKE ?', ('force_join', f"%{chan_user.lstrip('@')}%"))
         conn.commit()
         conn.close()
+    # Remove all matchings
     force_join_channels.discard(chan_user)
+    to_remove = [ch for ch in force_join_channels if chan_user.lstrip('@') in ch]
+    for tr in to_remove: force_join_channels.discard(tr)
     bot.reply_to(message, f"✅ Force Join Channel `{chan_user}` removed!", parse_mode='Markdown')
 
 def process_set_approval_chan(message):
     if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
     global APPROVAL_CHANNEL
-    chan_user, _ = extract_clean_channel_info(message.text)
+    chan_user, _ = parse_channel_input(message.text)
     with DB_LOCK:
         conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
         c = conn.cursor()
@@ -1495,7 +1505,7 @@ def process_set_approval_chan(message):
 def process_set_update_chan(message):
     if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
     global UPDATE_CHANNEL
-    chan_user, _ = extract_clean_channel_info(message.text)
+    chan_user, _ = parse_channel_input(message.text)
     with DB_LOCK:
         conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
         c = conn.cursor()
@@ -1695,7 +1705,7 @@ def handle_callbacks(call):
             bot.answer_callback_query(call.id, "✅ Verified successfully! Welcome.", show_alert=True)
             _logic_send_welcome(call.message)
         else: 
-            bot.answer_callback_query(call.id, "⚠️ Join first all channels to continue!", show_alert=True)
+            bot.answer_callback_query(call.id, "⚠️ Please join all required channels first!", show_alert=True)
         return
 
     # Dynamic Force Join Check with Pop-up Window
