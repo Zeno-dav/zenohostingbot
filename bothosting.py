@@ -201,16 +201,11 @@ SUSPICIOUS_KEYWORDS = [b'ransomware', b'trojan', b'virus', b'malware', b'backdoo
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# --- SMART CHANNEL & LINK PARSER (CRITICAL FIX) ---
+# --- STRICT CHANNEL & LINK SANITIZER ---
 def parse_channel_input(raw_input):
-    """
-    Parses any channel string (link, @username, raw username) 
-    and returns (clean_username_with_at, valid_telegram_url).
-    """
     if not raw_input:
         return "", ""
     clean = raw_input.strip()
-    # Extract username using regex
     match = re.search(r'(?:https?://)?(?:t\.me|telegram\.me)/([a-zA-Z0-9_]+)', clean)
     if match:
         uname = match.group(1)
@@ -594,8 +589,7 @@ def is_member(user_id: int) -> bool:
             ch_user, _ = parse_channel_input(ch)
             member = bot.get_chat_member(ch_user, user_id)
             if member.status in ['left', 'kicked']: return False
-        except Exception as e:
-            logger.error(f"Error checking channel membership for {ch}: {e}")
+        except Exception:
             pass
     return True
 
@@ -607,7 +601,6 @@ def prompt_force_join(chat_id):
     markup.add(StyledInlineKeyboardButton(text="🔄 I Joined — Verify", callback_data='verify_join', style="primary"))
     bot.send_message(chat_id, f"👋 Welcome to *{BOT_NAME}*!\n\n⚠️ You must join our required channels first to continue.", reply_markup=markup, parse_mode='Markdown')
 
-# --- ENHANCED POPUP FORCE JOIN CHECKER ---
 def check_force_join(message_or_call):
     if isinstance(message_or_call, types.CallbackQuery):
         user_id = message_or_call.from_user.id
@@ -1460,17 +1453,27 @@ def admin_show_channel_settings(call):
     
     smart_edit_or_send(call, text, reply_markup=markup)
 
+# --- INSTANT VALIDATION ON ADMIN ADD CHANNEL ---
 def process_add_fj_chan(message):
     if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
     chan_user, _ = parse_channel_input(message.text)
+    
+    # Check if channel exists via Telegram API first
+    try:
+        chat_info = bot.get_chat(chan_user)
+        valid_chan_name = f"@{chat_info.username}" if chat_info.username else chan_user
+    except Exception as e:
+        bot.reply_to(message, f"❌ Cannot verify channel `{chan_user}` on Telegram!\nMake sure Bot is added to the channel as **ADMIN**.", parse_mode='Markdown')
+        return
+
     with DB_LOCK:
         conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
         c = conn.cursor()
-        c.execute('INSERT OR IGNORE INTO channels VALUES (?,?)', ('force_join', chan_user))
+        c.execute('INSERT OR IGNORE INTO channels VALUES (?,?)', ('force_join', valid_chan_name))
         conn.commit()
         conn.close()
-    force_join_channels.add(chan_user)
-    bot.reply_to(message, f"✅ Force Join Channel `{chan_user}` added!", parse_mode='Markdown')
+    force_join_channels.add(valid_chan_name)
+    bot.reply_to(message, f"✅ Force Join Channel `{valid_chan_name}` verified & added successfully!", parse_mode='Markdown')
 
 def process_rem_fj_chan(message):
     if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
@@ -1478,15 +1481,14 @@ def process_rem_fj_chan(message):
     with DB_LOCK:
         conn = sqlite3.connect(DATABASE_PATH, check_same_thread=False)
         c = conn.cursor()
-        c.execute('DELETE FROM channels WHERE channel_type=? AND channel_val=?', ('force_join', chan_user))
-        c.execute('DELETE FROM channels WHERE channel_type=? AND channel_val LIKE ?', ('force_join', f"%{chan_user.lstrip('@')}%"))
+        c.execute('DELETE FROM channels WHERE channel_type=? AND (channel_val=? OR channel_val LIKE ?)', ('force_join', chan_user, f"%{chan_user.lstrip('@')}%"))
         conn.commit()
         conn.close()
-    # Remove all matchings
+        
     force_join_channels.discard(chan_user)
-    to_remove = [ch for ch in force_join_channels if chan_user.lstrip('@') in ch]
+    to_remove = [ch for ch in force_join_channels if chan_user.lstrip('@').lower() in ch.lower()]
     for tr in to_remove: force_join_channels.discard(tr)
-    bot.reply_to(message, f"✅ Force Join Channel `{chan_user}` removed!", parse_mode='Markdown')
+    bot.reply_to(message, f"✅ Channel `{chan_user}` removed successfully!", parse_mode='Markdown')
 
 def process_set_approval_chan(message):
     if message.text and message.text.lower() == '/cancel': bot.reply_to(message, "Cancelled."); return
