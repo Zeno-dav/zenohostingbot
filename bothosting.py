@@ -202,7 +202,7 @@ SUSPICIOUS_KEYWORDS = [b'ransomware', b'trojan', b'virus', b'malware', b'backdoo
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# --- CLEAN USERNAME HELPER ---
+# --- PERFECT LINK & USERNAME CLEANER HELPER ---
 def extract_clean_channel_info(channel_str):
     clean_str = channel_str.strip()
     if clean_str.startswith("http://") or clean_str.startswith("https://"):
@@ -287,9 +287,10 @@ def load_data():
         
         c.execute('SELECT channel_type, channel_val FROM channels')
         for ctype, cval in c.fetchall():
-            if ctype == 'force_join': force_join_channels.add(cval)
-            elif ctype == 'approval': APPROVAL_CHANNEL = cval
-            elif ctype == 'update': UPDATE_CHANNEL = cval
+            clean_username, _ = extract_clean_channel_info(cval)
+            if ctype == 'force_join': force_join_channels.add(clean_username)
+            elif ctype == 'approval': APPROVAL_CHANNEL = clean_username
+            elif ctype == 'update': UPDATE_CHANNEL = clean_username
             
         c.execute('SELECT key, value FROM settings')
         for k, v in c.fetchall():
@@ -1000,7 +1001,7 @@ def _logic_upload_file(message):
     limit = get_user_file_limit(user_id)
     count = get_user_file_count(user_id)
     if count >= limit: 
-        bot.reply_to(message, f"⚠️ Your file upload limit reached ({count}/{str(limit) if limit != float('inf') else '∞'}). Delete a file first."); return
+        bot.reply_to(message, f"⚠️ Your file uploaded limit reached ({count}/{str(limit) if limit != float('inf') else '∞'}). Delete a file first."); return
     
     upload_msg = f"📤 {make_bold_unicode('Send your .py, .js, or .zip file now.')}"
     try: bot.send_photo(message.chat.id, UPLOAD_IMAGE_URL, caption=upload_msg, parse_mode='Markdown')
